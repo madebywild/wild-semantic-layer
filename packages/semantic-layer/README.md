@@ -1,5 +1,7 @@
 # @madebywild/semantic-layer
 
+![wild-semantic-layer cover](../../public/cover.webp)
+
 Dendron-style semantic documentation for codebases where agents are first-class
 readers. The package validates a Markdown vault like source code: frontmatter,
 hierarchy, wikilinks, code references, freshness, and configured invariants all

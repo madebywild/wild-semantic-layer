@@ -1,4 +1,6 @@
-# Wild Semantic Layer
+# wild-semantic-layer
+
+![wild-semantic-layer cover](public/cover.webp)
 
 A small PNPM monorepo for `@madebywild/semantic-layer`: a Dendron-style
 semantic documentation layer that validates a Markdown vault like source code.
@@ -19,12 +21,14 @@ See the package README for the consumer-facing reference:
 ### Semantic Layer
 
 Pre task:
+
 - If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
 - Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
   to the task.
 - Follow wikilinks and `code_refs` from relevant notes before changing code.
 
 Post task:
+
 - Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
   behavior, API, architecture, or operational knowledge changed by the task.
 - Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
