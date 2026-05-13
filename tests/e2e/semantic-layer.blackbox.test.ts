@@ -1,11 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  cpSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

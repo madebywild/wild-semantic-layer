@@ -18,6 +18,8 @@ A pnpm monorepo (pnpm 11.1.1) for `@wild/semantic-layer`: a Dendron-style semant
 packages/semantic-layer/   the reusable library and CLI  (published as @wild/semantic-layer)
 apps/demo/                 live consumer app with a real vault
 tests/e2e/                 blackbox CLI tests (Testcontainers + Vitest)
+tests/integration/         source-level API workflow tests
+tests/unit/                focused unit tests for rules and helpers
 ```
 
 Root scripts:
@@ -25,10 +27,35 @@ Root scripts:
 | Script | What it does |
 | --- | --- |
 | `pnpm build` | builds all packages (`tsup`) |
-| `pnpm test` | runs Vitest (requires Docker for e2e) |
-| `pnpm check` | typecheck + test + demo showcase |
+| `pnpm format:check` | checks formatting with Biome |
+| `pnpm lint` | lints the workspace with Biome |
+| `pnpm test` | runs all Vitest projects (requires Docker for e2e) |
+| `pnpm test:coverage` | runs unit + integration tests with coverage thresholds |
+| `pnpm test:e2e` | runs the Docker-backed package install CLI test |
+| `pnpm check` | full handoff gate: format + lint + typecheck + coverage + e2e + demo showcase |
 | `pnpm demo` | builds the package, validates + indexes the demo vault, runs `apps/demo/src/app.js` |
 | `pnpm typecheck` | runs `tsc --noEmit` across all packages |
+
+---
+
+## Quality Gates
+
+Before finishing and handing over any task, run the relevant quality gates and report the result. Default to the full gate:
+
+```bash
+pnpm check
+```
+
+`pnpm check` must include, when available:
+
+1. Formatting verification (`pnpm format:check`)
+2. Linting (`pnpm lint`)
+3. Type checking (`pnpm typecheck`)
+4. Automated tests with meaningful coverage (`pnpm test:coverage`)
+5. Package/e2e verification (`pnpm test:e2e`)
+6. Demo or showcase validation (`pnpm --filter @wild/semantic-layer-demo showcase`)
+
+If a task is too narrow for the full gate, run the smallest defensible subset and state what was skipped and why. If formatting or linting is missing in the repo, add Biome at the workspace root, define `format`, `format:check`, and `lint` scripts, and include them in `pnpm check` before handoff.
 
 ---
 
@@ -101,7 +128,7 @@ type SchemaDoc = {
 type ExternalInvariant = {
   id: string        // token name
   value: string     // expected value
-  usedIn: string[]  // note ids that must contain both {{id}} and value
+  usedIn: string[]  // note ids that must contain both the token named by id and value
 }
 
 type SemanticLayerConfig = {
@@ -188,7 +215,7 @@ All checks run in this order:
 
 10. **Freshness** - skipped for `deprecated` notes. `last_verified + ttl_days` must be >= today (UTC). Reports how many days expired.
 
-11. **External invariants** - for each invariant, each referenced note must contain `{{id}}` and the `value` string literally in its body.
+11. **External invariants** - for each invariant, each referenced note must contain the token named by the invariant `id` and the `value` string literally in its body.
 
 ---
 
@@ -235,7 +262,7 @@ Consumer app that proves the package works outside its own source tree.
 
 ---
 
-## tests/e2e
+## tests
 
 `tests/e2e/semantic-layer.blackbox.test.ts` — Vitest test with a 3-minute timeout (Docker startup).
 
@@ -247,6 +274,8 @@ Flow:
 5. Mutate `service.auth.md` to use a bad symbol, assert `check` exits non-zero with the right error.
 
 The `.tmp/` directory is created and destroyed by the test; it is git-ignored.
+
+Unit tests live under `tests/unit/`. Integration tests live under `tests/integration/` and import the source public API rather than built `dist`, so they do not race the e2e packaging build. The e2e test remains the publish-path proof: it packs the package and installs the tarball into a clean consumer container.
 
 ---
 
@@ -280,11 +309,23 @@ The `.tmp/` directory is created and destroyed by the test; it is git-ignored.
 - `"strict": true` — no implicit any, strict null checks, etc.
 - `"ignoreDeprecations": "6.0"` — suppresses TypeScript 6 deprecation noise.
 
-### Testing
+### Testing and quality gates
 
-`pnpm test` runs Vitest from the repo root. The e2e suite requires Docker. Set `hookTimeout: 120_000` and `testTimeout: 180_000` in `vitest.config.ts` (already configured).
+`pnpm test` runs all Vitest projects from the repo root. The e2e suite requires Docker. Unit, integration, and e2e projects have separate Vitest project configs under `tests/*/vitest.config.ts`.
 
-To run only the e2e suite: `vitest run tests/e2e`.
+To run only source-level tests with coverage:
+
+```bash
+pnpm test:coverage
+```
+
+To run only the e2e suite:
+
+```bash
+pnpm test:e2e
+```
+
+Always run `pnpm check` before final handoff unless there is a clear blocker; if blocked, report the exact command and failure.
 
 ### Building
 

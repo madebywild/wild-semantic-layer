@@ -1,0 +1,123 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { runIndex } from "../../../../packages/semantic-layer/src/index.js";
+import { createTempVault } from "../../../helpers.js";
+
+function validNoteMd(
+  id: string,
+  title = id,
+  desc = "Test note.",
+  status = "active",
+  body = "",
+): string {
+  return `---\nid: ${id}\ntitle: ${title}\ndesc: ${desc}\nstatus: ${status}\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\n---\n\n${body}`;
+}
+
+describe("index generation (integration)", () => {
+  it("generates correct hierarchy for a demo-style vault", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root", "Root", "Entry point."),
+      "vault/meta.md": validNoteMd("meta", "Metadata", "Operating notes."),
+      "vault/meta.agent-conventions.md": validNoteMd(
+        "meta.agent-conventions",
+        "Agent conventions",
+        "How agents read this.",
+      ),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [meta]\n",
+      "vault/meta.schema.yml":
+        "version: 1\nschemas:\n  - id: meta\n    parent: root\n    children: [agent-conventions]\n",
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const content = readFileSync(result.outFile, "utf8");
+
+      expect(content).toContain("**root**");
+      expect(content).toContain("**meta**");
+      expect(content).toContain("**meta.agent-conventions**");
+
+      // Root should come first
+      const lines = content.split("\n");
+      const rootIdx = lines.findIndex((l) => l.includes("**root**"));
+      const metaIdx = lines.findIndex(
+        (l) => l.includes("**meta**") && !l.includes("meta.agent-conventions"),
+      );
+      expect(rootIdx).toBeLessThan(metaIdx);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("updates existing HIERARCHY.md on second run", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root"),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+
+    try {
+      const result1 = runIndex({ cwd: tv.dir });
+
+      // Add a note and re-run
+      writeFileSync(join(tv.vaultDir, "alpha.md"), validNoteMd("alpha"));
+      writeFileSync(
+        join(tv.vaultDir, "root.schema.yml"),
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+      );
+
+      const result2 = runIndex({ cwd: tv.dir });
+      const content2 = readFileSync(result2.outFile, "utf8");
+
+      expect(result2.noteCount).toBeGreaterThan(result1.noteCount);
+      expect(content2).toContain("**alpha**");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("handles empty vault (root only)", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root"),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      expect(result.noteCount).toBe(1);
+      const content = readFileSync(result.outFile, "utf8");
+      expect(content).toContain("**root**");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("handles deeply nested notes", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root"),
+      "vault/a.md": validNoteMd("a"),
+      "vault/a.b.md": validNoteMd("a.b"),
+      "vault/a.b.c.md": validNoteMd("a.b.c"),
+      "vault/a.b.c.d.md": validNoteMd("a.b.c.d"),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [a]\n",
+      "vault/a.schema.yml":
+        "version: 1\nschemas:\n  - id: a\n    parent: root\n    namespace: true\n    children: []\n",
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const content = readFileSync(result.outFile, "utf8");
+      const lines = content.split("\n");
+
+      const dLine = lines.find((l) => l.includes("**a.b.c.d**"));
+      expect(dLine).toBeDefined();
+      // Depth 3 should have 6 spaces of indentation
+      expect(dLine?.startsWith("      -")).toBe(true);
+    } finally {
+      tv.cleanup();
+    }
+  });
+});

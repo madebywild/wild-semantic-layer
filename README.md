@@ -18,7 +18,9 @@ See the package README for the consumer-facing reference:
 ```text
 packages/semantic-layer  reusable package and CLI
 apps/demo                live consumer app with a real vault
-tests/e2e                blackbox CLI tests using Testcontainers
+tests/unit               focused rule and helper coverage
+tests/integration        source-level API workflow coverage
+tests/e2e                blackbox CLI/package tests using Testcontainers
 ```
 
 ## Commands
@@ -28,10 +30,16 @@ pnpm install
 pnpm build
 pnpm demo
 pnpm test
+pnpm test:coverage
+pnpm test:e2e
 pnpm check
 ```
 
 Use PNPM 11.1.1, as declared in `package.json`. `pnpm demo` builds the package,
-validates and indexes the demo vault, then runs the demo app. `pnpm test` needs
-Docker: it packs the package, installs it into a clean Node container, and runs
-the CLI as a consumer would.
+validates and indexes the demo vault, then runs the demo app.
+
+`pnpm test` runs the full Vitest workspace, including the Docker-backed e2e
+package install test. `pnpm test:coverage` runs unit and integration tests with
+coverage thresholds against `packages/semantic-layer/src`. `pnpm check` is the
+release gate: typecheck, measured coverage, e2e package test, and demo
+showcase.

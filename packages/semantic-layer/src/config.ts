@@ -58,7 +58,6 @@ function mergeConfig(
     root: override.root ?? base.root,
     index: { ...base.index, ...override.index },
     frontmatter: { ...base.frontmatter, ...override.frontmatter },
-    externalInvariants:
-      override.externalInvariants ?? base.externalInvariants,
+    externalInvariants: override.externalInvariants ?? base.externalInvariants,
   };
 }
