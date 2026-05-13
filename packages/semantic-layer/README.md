@@ -206,17 +206,25 @@ workspace installs can create the executable before build output exists.
 ## Deployment
 
 This package is deployed to npm as `@madebywild/semantic-layer` from the
-repository's "Publish Package" GitHub Actions workflow.
+repository's "Release Package" GitHub Actions workflow.
 
 To publish:
 
 1. Bump `packages/semantic-layer/package.json`.
-2. Push the change to `main`.
-3. Push a matching semver git tag, for example `v0.1.0` for package version
-   `0.1.0`.
-4. The workflow runs `pnpm check`, builds this package, validates the tag,
-   skips the publish if the same version already exists on npm, and otherwise
-   runs `pnpm publish --access restricted --no-git-checks`.
+2. Merge or push the version bump to `main`.
+3. Create a matching semver git tag on that `main` commit, for example `v0.1.0`
+   for package version `0.1.0`.
+4. Push the tag, for example `git push origin v0.1.0`.
+5. The workflow runs `pnpm check`, builds this package, validates the tag,
+   verifies the tagged commit is contained in `origin/main`, skips the npm
+   publish if the same version already exists, and otherwise runs
+   `pnpm publish --access restricted --no-git-checks`.
+6. The workflow creates the matching GitHub Release from the same tag with
+   generated release notes.
+
+Do not create the GitHub Release manually before publishing. The git tag is the
+release source of truth, and it must match `v0.0.0`, for example `v0.1.0` for
+`0.1.0`.
 
 The workflow uses the `NPM_TOKEN` GitHub secret for npm authentication and
 publishes the scoped package with private/restricted npm access.

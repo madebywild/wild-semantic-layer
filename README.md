@@ -69,10 +69,11 @@ test, and demo showcase.
 The package is published to npm as `@madebywild/semantic-layer` by
 `.github/workflows/publish.yml`.
 
-Publishing is driven by pushes:
+Publishing and GitHub releases are driven by semver git tags:
 
-- every push to `main` runs the release gate
-- pushing a semver tag such as `v0.1.0` runs the release gate and publishes
+- merge or push the version bump to `main`
+- create a semver tag on that `main` commit, such as `v0.1.0`
+- push the tag with `git push origin v0.1.0`
 
 The workflow installs dependencies with PNPM 11.1.1 on Node.js 24, runs the full
 `pnpm check` release gate, builds `packages/semantic-layer`, checks whether the
@@ -80,7 +81,13 @@ current `package.json` version already exists on npm, and publishes only missing
 versions from semver tag pushes with
 `pnpm publish --access restricted --no-git-checks`. The release tag must match
 `v0.0.0` format and must equal the package version, for example package version
-`0.1.0` must be published from tag `v0.1.0`.
+`0.1.0` must be published from tag `v0.1.0`. The tagged commit must already be
+contained in `origin/main`.
+
+After the npm publish step succeeds, or if that exact npm version already
+exists, the workflow creates the matching GitHub Release from the same tag with
+generated release notes. Do not create a GitHub Release manually first; the git
+tag is the release source of truth.
 
 The workflow expects the repository secret `NPM_TOKEN` to contain an npm token
 with publish access to the `@madebywild` scope. Bump
