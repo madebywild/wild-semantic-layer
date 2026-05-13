@@ -13,6 +13,26 @@ The package provides:
 See the package README for the consumer-facing reference:
 [`packages/semantic-layer/README.md`](packages/semantic-layer/README.md).
 
+## Agent Prompt Fragment
+
+```md
+### Semantic Layer
+
+Pre task:
+- If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
+- Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
+  to the task.
+- Follow wikilinks and `code_refs` from relevant notes before changing code.
+
+Post task:
+- Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
+  behavior, API, architecture, or operational knowledge changed by the task.
+- Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
+  wikilinks, schema children, and configured external invariants.
+- Run `semantic-layer check` and `semantic-layer index`; do not hand off until
+  both pass or the exact failures are reported.
+```
+
 ## Workspace
 
 ```text
