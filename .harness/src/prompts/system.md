@@ -10,12 +10,12 @@ All MCP servers, prompts, skills, subagents, and agent settings must be configur
 
 ## Project: wild-semantic-layer
 
-A pnpm monorepo (pnpm 11.1.1) for `@wild/semantic-layer`: a Dendron-style semantic documentation validator and indexer. Docs are treated like source code — they must compile before they are trusted by agents.
+A pnpm monorepo (pnpm 11.1.1) for `@madebywild/semantic-layer`: a Dendron-style semantic documentation validator and indexer. Docs are treated like source code — they must compile before they are trusted by agents.
 
 ### Workspace layout
 
 ```
-packages/semantic-layer/   the reusable library and CLI  (published as @wild/semantic-layer)
+packages/semantic-layer/   the reusable library and CLI  (published as @madebywild/semantic-layer)
 apps/demo/                 live consumer app with a real vault
 tests/e2e/                 blackbox CLI tests (Testcontainers + Vitest)
 tests/integration/         source-level API workflow tests
@@ -53,7 +53,7 @@ pnpm check
 3. Type checking (`pnpm typecheck`)
 4. Automated tests with meaningful coverage (`pnpm test:coverage`)
 5. Package/e2e verification (`pnpm test:e2e`)
-6. Demo or showcase validation (`pnpm --filter @wild/semantic-layer-demo showcase`)
+6. Demo or showcase validation (`pnpm --filter @madebywild/semantic-layer-demo showcase`)
 
 If a task is too narrow for the full gate, run the smallest defensible subset and state what was skipped and why. If formatting or linting is missing in the repo, add Biome at the workspace root, define `format`, `format:check`, and `lint` scripts, and include them in `pnpm check` before handoff.
 
@@ -234,7 +234,7 @@ All checks run in this order:
 ### Programmatic API
 
 ```ts
-import { loadConfig, runCheck, runIndex, runInit } from "@wild/semantic-layer"
+import { loadConfig, runCheck, runIndex, runInit } from "@madebywild/semantic-layer"
 
 // Run check
 const result = runCheck({ cwd: process.cwd() })

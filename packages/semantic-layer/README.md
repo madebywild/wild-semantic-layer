@@ -1,4 +1,4 @@
-# @wild/semantic-layer
+# @madebywild/semantic-layer
 
 Dendron-style semantic documentation for codebases where agents are first-class
 readers. The package validates a Markdown vault like source code: frontmatter,
@@ -8,7 +8,7 @@ compile before the docs are trusted.
 ## Install
 
 ```bash
-pnpm add -D @wild/semantic-layer
+pnpm add -D @madebywild/semantic-layer
 ```
 
 Add scripts to the consuming project:
@@ -176,7 +176,7 @@ Post task:
 ## Programmatic API
 
 ```ts
-import { runCheck, runIndex, runInit } from "@wild/semantic-layer";
+import { runCheck, runIndex, runInit } from "@madebywild/semantic-layer";
 
 const result = runCheck({ cwd: process.cwd() });
 if (result.errors.length > 0) {
@@ -200,3 +200,23 @@ Exports:
 The published package contains only `bin/`, `dist/`, `README.md`, and
 `package.json`. The CLI bin is a small stable wrapper around `dist/cli.js`, so
 workspace installs can create the executable before build output exists.
+`publishConfig` pins npm as the registry and restricted access for the
+`@madebywild` scope.
+
+## Deployment
+
+This package is deployed to npm as `@madebywild/semantic-layer` from the
+repository's "Publish Package" GitHub Actions workflow.
+
+To publish:
+
+1. Bump `packages/semantic-layer/package.json`.
+2. Push the change to `main`.
+3. Push a matching semver git tag, for example `v0.1.0` for package version
+   `0.1.0`.
+4. The workflow runs `pnpm check`, builds this package, validates the tag,
+   skips the publish if the same version already exists on npm, and otherwise
+   runs `pnpm publish --access restricted --no-git-checks`.
+
+The workflow uses the `NPM_TOKEN` GitHub secret for npm authentication and
+publishes the scoped package with private/restricted npm access.

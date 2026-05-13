@@ -38,7 +38,7 @@ importers:
 
   apps/demo:
     dependencies:
-      '@wild/semantic-layer':
+      '@madebywild/semantic-layer':
         specifier: workspace:*
         version: link:../../packages/semantic-layer
 

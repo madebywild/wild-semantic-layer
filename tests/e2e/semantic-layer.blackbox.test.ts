@@ -22,7 +22,7 @@ describe("semantic-layer CLI blackbox", () => {
     mkdirSync(packDir, { recursive: true });
     execFileSync(
       "pnpm",
-      ["--filter", "@wild/semantic-layer", "pack", "--pack-destination", packDir],
+      ["--filter", "@madebywild/semantic-layer", "pack", "--pack-destination", packDir],
       { cwd: repoRoot, stdio: "inherit" },
     );
     const tarball = readdirSync(packDir).find((file) => file.endsWith(".tgz"));
@@ -91,7 +91,7 @@ function writeConsumerProject(dir: string, tarball: string) {
         private: true,
         type: "module",
         dependencies: {
-          "@wild/semantic-layer": `file:./${tarball}`,
+          "@madebywild/semantic-layer": `file:./${tarball}`,
         },
       },
       null,

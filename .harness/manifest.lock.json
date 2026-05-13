@@ -9,7 +9,7 @@
         "cursor": "09bfcc6a14b83e2192b8673677725c84883ee9cd0c70e45c9ec09daa8f2b2847"
       },
       "registry": "local",
-      "sourceSha256": "7a70d0fbee215e4812d5da0420d27494c077c0c53f698e44c307cc5147e8beb2",
+      "sourceSha256": "ed3bf90b670e229283b3246aa4170e56d34e97bfc27a90665c805ee935f38a16",
       "type": "prompt"
     },
     {
@@ -34,7 +34,7 @@
       "type": "settings"
     }
   ],
-  "generatedAt": "2026-05-13T21:57:57.509Z",
+  "generatedAt": "2026-05-13T22:21:48.489Z",
   "manifestFingerprint": "60916793f0748d26673d414702b5111c7ea345329d8f1bf7b86db45d6a25b36d",
   "outputs": [
     {
@@ -54,7 +54,7 @@
       "provider": "codex"
     },
     {
-      "contentSha256": "7a70d0fbee215e4812d5da0420d27494c077c0c53f698e44c307cc5147e8beb2",
+      "contentSha256": "ed3bf90b670e229283b3246aa4170e56d34e97bfc27a90665c805ee935f38a16",
       "ownerEntityIds": [
         "system"
       ],
@@ -70,7 +70,7 @@
       "provider": "copilot"
     },
     {
-      "contentSha256": "7a70d0fbee215e4812d5da0420d27494c077c0c53f698e44c307cc5147e8beb2",
+      "contentSha256": "ed3bf90b670e229283b3246aa4170e56d34e97bfc27a90665c805ee935f38a16",
       "ownerEntityIds": [
         "system"
       ],
@@ -78,7 +78,7 @@
       "provider": "codex"
     },
     {
-      "contentSha256": "7a70d0fbee215e4812d5da0420d27494c077c0c53f698e44c307cc5147e8beb2",
+      "contentSha256": "ed3bf90b670e229283b3246aa4170e56d34e97bfc27a90665c805ee935f38a16",
       "ownerEntityIds": [
         "system"
       ],

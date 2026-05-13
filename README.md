@@ -1,7 +1,7 @@
 # Wild Semantic Layer
 
-A small PNPM monorepo for `@wild/semantic-layer`: a Dendron-style semantic
-documentation layer that validates a Markdown vault like source code.
+A small PNPM monorepo for `@madebywild/semantic-layer`: a Dendron-style
+semantic documentation layer that validates a Markdown vault like source code.
 
 The package provides:
 
@@ -61,5 +61,29 @@ validates and indexes the demo vault, then runs the demo app.
 `pnpm test` runs the full Vitest workspace, including the Docker-backed e2e
 package install test. `pnpm test:coverage` runs unit and integration tests with
 coverage thresholds against `packages/semantic-layer/src`. `pnpm check` is the
-release gate: typecheck, measured coverage, e2e package test, and demo
-showcase.
+release gate: formatting, linting, typecheck, measured coverage, e2e package
+test, and demo showcase.
+
+## Deployment
+
+The package is published to npm as `@madebywild/semantic-layer` by
+`.github/workflows/publish.yml`.
+
+Publishing is driven by pushes:
+
+- every push to `main` runs the release gate
+- pushing a semver tag such as `v0.1.0` runs the release gate and publishes
+
+The workflow installs dependencies with PNPM 11.1.1 on Node.js 24, runs the full
+`pnpm check` release gate, builds `packages/semantic-layer`, checks whether the
+current `package.json` version already exists on npm, and publishes only missing
+versions from semver tag pushes with
+`pnpm publish --access restricted --no-git-checks`. The release tag must match
+`v0.0.0` format and must equal the package version, for example package version
+`0.1.0` must be published from tag `v0.1.0`.
+
+The workflow expects the repository secret `NPM_TOKEN` to contain an npm token
+with publish access to the `@madebywild` scope. Bump
+`packages/semantic-layer/package.json` before publishing a new release; npm will
+not accept republishing an existing version. The package is configured for
+private scoped publishing through `publishConfig.access: restricted`.
