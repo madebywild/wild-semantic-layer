@@ -1,0 +1,9 @@
+version: 1
+schemas:
+  - id: meta
+    title: Metadata
+    parent: root
+    children: [agent-conventions]
+  - id: agent-conventions
+    title: Agent conventions
+    desc: Agent operating rules.

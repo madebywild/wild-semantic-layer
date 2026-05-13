@@ -1,0 +1,21 @@
+{
+  "managedOutputPaths": [
+    ".claude/settings.json",
+    ".codex/config.toml",
+    ".github/copilot-instructions.md",
+    ".vscode/settings.json",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "managedSourcePaths": [
+    ".harness/src/prompts/system.md",
+    ".harness/src/prompts/system.overrides.claude.yaml",
+    ".harness/src/prompts/system.overrides.codex.yaml",
+    ".harness/src/prompts/system.overrides.copilot.yaml",
+    ".harness/src/prompts/system.overrides.cursor.yaml",
+    ".harness/src/settings/claude.json",
+    ".harness/src/settings/codex.toml",
+    ".harness/src/settings/copilot.json"
+  ],
+  "version": 1
+}

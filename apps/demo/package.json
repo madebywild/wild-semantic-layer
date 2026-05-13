@@ -1,0 +1,15 @@
+{
+  "name": "@wild/semantic-layer-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:check": "semantic-layer check",
+    "docs:index": "semantic-layer index",
+    "showcase": "pnpm docs:check && pnpm docs:index && node src/app.js",
+    "typecheck": "node --check src/app.js"
+  },
+  "dependencies": {
+    "@wild/semantic-layer": "workspace:*"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "chat.autopilot.enabled": true,
+  "chat.tools.global.autoApprove": true
+}

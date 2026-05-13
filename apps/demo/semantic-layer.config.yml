@@ -1,0 +1,10 @@
+vault: vault
+root: .
+index:
+  file: HIERARCHY.md
+frontmatter:
+  requiredExtraFields: [layer]
+externalInvariants:
+  - id: runtime
+    value: Node.js 24
+    usedIn: [demo.runtime]

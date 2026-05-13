@@ -1,0 +1,9 @@
+version: 1
+schemas:
+  - id: demo
+    title: Demo application
+    parent: root
+    children: [runtime]
+  - id: runtime
+    title: Runtime contract
+    desc: Runtime assumptions.

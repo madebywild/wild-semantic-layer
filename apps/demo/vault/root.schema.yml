@@ -1,0 +1,6 @@
+version: 1
+schemas:
+  - id: root
+    title: Root
+    parent: root
+    children: [demo, meta]

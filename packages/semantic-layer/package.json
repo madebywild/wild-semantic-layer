@@ -1,0 +1,52 @@
+{
+  "name": "@wild/semantic-layer",
+  "version": "0.1.0",
+  "description": "Dendron-style semantic documentation validator and indexer.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "keywords": [
+    "agents",
+    "documentation",
+    "dendron",
+    "semantic-layer",
+    "validation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madebywild/wild-semantic-layer.git",
+    "directory": "packages/semantic-layer"
+  },
+  "bin": {
+    "semantic-layer": "./bin/semantic-layer.cjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap",
+    "prepack": "pnpm build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "gray-matter": "4.0.3",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.7.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
