@@ -202,7 +202,7 @@ Exports:
 The published package contains only `bin/`, `dist/`, `README.md`, and
 `package.json`. The CLI bin is a small stable wrapper around `dist/cli.js`, so
 workspace installs can create the executable before build output exists.
-`publishConfig` pins npm as the registry and restricted access for the
+`publishConfig` pins npm as the registry and public access for the
 `@madebywild` scope.
 
 ## Deployment
@@ -220,7 +220,7 @@ To publish:
 5. The workflow runs `pnpm check`, builds this package, validates the tag,
    verifies the tagged commit is contained in `origin/main`, skips the npm
    publish if the same version already exists, and otherwise runs
-   `pnpm publish --access restricted --no-git-checks`.
+   `pnpm publish --access public --no-git-checks`.
 6. The workflow creates the matching GitHub Release from the same tag with
    generated release notes.
 
@@ -229,4 +229,4 @@ release source of truth, and it must match `v0.0.0`, for example `v0.1.0` for
 `0.1.0`.
 
 The workflow uses the `NPM_TOKEN` GitHub secret for npm authentication and
-publishes the scoped package with private/restricted npm access.
+publishes the scoped package with public npm access.

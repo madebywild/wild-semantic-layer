@@ -1,6 +1,6 @@
 {
   "name": "@madebywild/semantic-layer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dendron-style semantic documentation validator and indexer.",
   "type": "module",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "README.md"
   ],
   "publishConfig": {
-    "access": "restricted",
+    "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {

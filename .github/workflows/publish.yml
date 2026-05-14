@@ -92,7 +92,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
-        run: pnpm publish --access restricted --no-git-checks
+        run: pnpm publish --access public --no-git-checks
 
       - name: Create GitHub release
         env:
