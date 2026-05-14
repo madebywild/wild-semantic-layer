@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runInit } from "../../../../packages/semantic-layer/src/init.js";
@@ -84,6 +84,24 @@ describe("runInit", () => {
     }
   });
 
+  it("does not create domain or architecture sample notes", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      runInit({ cwd: dir });
+      const files = readdirSync(join(dir, "vault")).sort();
+      expect(files).toEqual([
+        "meta.agent-conventions.md",
+        "meta.md",
+        "meta.schema.yml",
+        "root.md",
+        "root.schema.yml",
+      ]);
+      expect(files.some((file) => /^(auth|infra|payments)(\.|$)/.test(file))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("refuses to overwrite existing files", () => {
     const { dir, cleanup } = createTempDir();
     try {
@@ -101,6 +119,9 @@ describe("runInit", () => {
       expect(existsSync(join(dir, "docs"))).toBe(true);
       expect(existsSync(join(dir, "docs", "root.md"))).toBe(true);
       expect(result.vaultDir).toContain("docs");
+      expect(readFileSync(join(dir, "semantic-layer.config.yml"), "utf8")).toContain(
+        "vault: docs\n",
+      );
     } finally {
       cleanup();
     }

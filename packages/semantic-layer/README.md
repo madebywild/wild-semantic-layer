@@ -36,6 +36,10 @@ semantic-layer --help
 `check` is the default command, so `semantic-layer` and
 `semantic-layer check` are equivalent.
 
+`init` creates semantic-layer bootstrap files only: config, root metadata, agent
+conventions, and matching schemas. It does not create sample product,
+architecture, or infrastructure notes.
+
 ## Config
 
 Create `semantic-layer.config.yml` at the consumer repo root:

@@ -11,7 +11,7 @@ describe("init → check pipeline (integration)", () => {
       runInit({ cwd: dir });
       const result = runCheck({ cwd: dir });
       expect(result.errors).toHaveLength(0);
-      expect(result.noteCount).toBeGreaterThan(0);
+      expect(result.noteCount).toBe(3);
     } finally {
       cleanup();
     }
@@ -21,8 +21,9 @@ describe("init → check pipeline (integration)", () => {
     const { dir, cleanup } = createTempDir();
     try {
       runInit({ cwd: dir, vault: "docs" });
-      const result = runCheck({ cwd: dir, vault: "docs" });
+      const result = runCheck({ cwd: dir });
       expect(result.errors).toHaveLength(0);
+      expect(result.noteCount).toBe(3);
     } finally {
       cleanup();
     }
