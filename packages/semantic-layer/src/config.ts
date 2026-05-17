@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: SemanticLayerConfig = {
   index: { file: "HIERARCHY.md" },
   frontmatter: { requiredExtraFields: [] },
   externalInvariants: [],
+  evolution: { stagingDir: "" },
 };
 
 export type LoadConfigOptions = {
@@ -35,12 +36,16 @@ export function loadConfig(options: LoadConfigOptions = {}): ResolvedConfig {
 
   if (options.vault) merged.vault = options.vault;
   if (options.root) merged.root = options.root;
+  if (!merged.evolution.stagingDir) {
+    merged.evolution.stagingDir = `${merged.vault}/.semantic-layer/refinements`;
+  }
 
   return {
     ...merged,
     configFile,
     repoRoot: resolve(baseDir, merged.root),
     vaultDir: resolve(baseDir, merged.vault),
+    refinementDir: resolve(baseDir, merged.evolution.stagingDir),
   };
 }
 
@@ -59,5 +64,6 @@ function mergeConfig(
     index: { ...base.index, ...override.index },
     frontmatter: { ...base.frontmatter, ...override.frontmatter },
     externalInvariants: override.externalInvariants ?? base.externalInvariants,
+    evolution: { ...base.evolution, ...override.evolution },
   };
 }

@@ -25,8 +25,10 @@ function setupValidVault(extra?: {
       index: { file: "HIERARCHY.md" },
       frontmatter: { requiredExtraFields: [] },
       externalInvariants: [],
+      evolution: { stagingDir: "vault/.semantic-layer/refinements" },
       repoRoot: tv.repoRoot,
       vaultDir: tv.vaultDir,
+      refinementDir: `${tv.vaultDir}/.semantic-layer/refinements`,
       configFile: undefined,
     },
     cleanup: tv.cleanup,
@@ -39,6 +41,7 @@ type ResolvableConfig = {
   index?: { file: string };
   frontmatter?: { requiredExtraFields: string[] };
   externalInvariants?: Array<{ id: string; value: string; usedIn: string[] }>;
+  evolution?: { stagingDir: string };
 };
 
 function validNote(
@@ -350,8 +353,10 @@ describe("checkResolved — missing root", () => {
       index: { file: "HIERARCHY.md" },
       frontmatter: { requiredExtraFields: [] },
       externalInvariants: [],
+      evolution: { stagingDir: "vault/.semantic-layer/refinements" },
       repoRoot: tv.repoRoot,
       vaultDir: tv.vaultDir,
+      refinementDir: `${tv.vaultDir}/.semantic-layer/refinements`,
       configFile: undefined,
     };
     try {

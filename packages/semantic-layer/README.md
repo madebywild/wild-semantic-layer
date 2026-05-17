@@ -30,6 +30,8 @@ Add scripts to the consuming project:
 semantic-layer check
 semantic-layer index
 semantic-layer init
+semantic-layer refine stage --source user-message --title "Runtime changed" --stdin
+semantic-layer refine list --status staged
 semantic-layer --help
 ```
 
@@ -55,6 +57,8 @@ externalInvariants:
   - id: runtime
     value: Node.js 24
     usedIn: [demo.runtime]
+evolution:
+  stagingDir: vault/.semantic-layer/refinements
 ```
 
 Resolution order is CLI flags, then config file, then defaults. Supported config
@@ -68,6 +72,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `index.file` | `HIERARCHY.md` | Generated agent-facing index filename. |
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
+| `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
 
 CLI overrides:
 
@@ -128,6 +133,38 @@ its parent `auth.md`. The vault requires `root.md`.
 Deprecated notes are still checked for structure and links, but freshness is
 skipped.
 
+If `evolution.stagingDir` exists, `check` also validates staged, promoted, and
+rejected refinement metadata. Pending staged refinements do not fail `check` and
+are not part of the trusted vault graph.
+
+## Evolutionary Self-Improvement
+
+The trusted knowledge graph remains the validated vault. The refinement staging
+area is an untrusted heap for durable non-assistant project signals that may
+improve the graph but should not be merged directly.
+
+```bash
+semantic-layer refine stage \
+  --source user-message \
+  --title "Runtime changed" \
+  --related demo.runtime \
+  --stdin
+
+semantic-layer refine list --status staged
+semantic-layer refine promote <id> --note demo.runtime
+semantic-layer refine reject <id> --reason "Superseded by later decision"
+```
+
+`stage` stores a distilled summary, optional evidence snippets, related note
+ids, and lifecycle metadata under `vault/.semantic-layer/refinements/staged/`.
+It intentionally does not store raw chat transcripts by default.
+
+`promote` is an assistant-driven handoff step: update the relevant `vault/*.md`
+notes and schemas first, then run `semantic-layer refine promote <id> --note
+<note-id>`. Promotion refuses to proceed if `semantic-layer check` fails, then
+regenerates the index and moves the record to `promoted/`. Use `reject` for
+faulty, shallow, secret-bearing, obsolete, or non-durable staged inputs.
+
 ## Schemas
 
 Schema files use Dendron-compatible fields:
@@ -175,6 +212,10 @@ Post task:
   behavior, API, architecture, or operational knowledge changed by the task.
 - Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
   wikilinks, schema children, and configured external invariants.
+- Stage significant non-assistant inputs with `semantic-layer refine stage` when
+  they may refine the graph but should not be trusted directly yet.
+- Promote staged refinements only after updating the trusted vault, then reject
+  shallow, faulty, secret-bearing, or obsolete staged inputs with a reason.
 - Run `semantic-layer check` and `semantic-layer index`; do not hand off until
   both pass or the exact failures are reported.
 ```
@@ -182,7 +223,12 @@ Post task:
 ## Programmatic API
 
 ```ts
-import { runCheck, runIndex, runInit } from "@madebywild/semantic-layer";
+import {
+  runCheck,
+  runIndex,
+  runInit,
+  runRefinementStage,
+} from "@madebywild/semantic-layer";
 
 const result = runCheck({ cwd: process.cwd() });
 if (result.errors.length > 0) {
@@ -191,6 +237,12 @@ if (result.errors.length > 0) {
 
 runIndex();
 runInit({ vault: "vault", owner: "eng@example.com" });
+runRefinementStage({
+  source: "user-message",
+  title: "Runtime changed",
+  summary: "The runtime contract now targets Node.js 24.",
+  relatedNotes: ["demo.runtime"],
+});
 ```
 
 Exports:
@@ -199,6 +251,10 @@ Exports:
 - `runCheck`
 - `runIndex`
 - `runInit`
+- `runRefinementStage`
+- `runRefinementList`
+- `runRefinementPromote`
+- `runRefinementReject`
 - TypeScript types for config, notes, schemas, and check results
 
 ## Packaging Notes

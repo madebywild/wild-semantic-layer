@@ -8,3 +8,5 @@ externalInvariants:
   - id: runtime
     value: Node.js 24
     usedIn: [demo.runtime]
+evolution:
+  stagingDir: vault/.semantic-layer/refinements
