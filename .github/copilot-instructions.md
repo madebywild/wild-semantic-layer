@@ -16,6 +16,22 @@ Primary workspace areas:
 
 Use the repository's existing patterns and TypeScript settings. Source imports in `packages/semantic-layer/src/` use `.js` extensions because the package uses `module` and `moduleResolution` set to `NodeNext`.
 
+## Semantic Layer Workflow
+
+Pre task:
+
+- If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
+- Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant to the task.
+- Follow wikilinks and `code_refs` from relevant notes before changing code.
+
+Post task:
+
+- Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any behavior, API, architecture, or operational knowledge changed by the task.
+- Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`, wikilinks, schema children, and configured external invariants.
+- Stage significant non-assistant inputs with `semantic-layer refine stage` when they may refine the graph but should not be trusted directly yet.
+- Promote staged refinements only after updating the trusted vault, then reject shallow, faulty, secret-bearing, or obsolete staged inputs with a reason.
+- Run `semantic-layer check` and `semantic-layer index`; do not hand off until both pass or the exact failures are reported.
+
 ## Harness Source Of Truth
 
 All agent configuration must be authored exclusively inside `.harness/`.

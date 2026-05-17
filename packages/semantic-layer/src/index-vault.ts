@@ -2,9 +2,13 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, type LoadConfigOptions } from "./config.js";
 import { readVault } from "./vault.js";
+import type { ResolvedConfig } from "./types.js";
 
 export function runIndex(options: LoadConfigOptions = {}) {
-  const config = loadConfig(options);
+  return indexResolved(loadConfig(options));
+}
+
+export function indexResolved(config: ResolvedConfig) {
   const { notes } = readVault(config.vaultDir);
   const rows = [...notes.values()].sort((a, b) => {
     if (a.id === "root") return -1;

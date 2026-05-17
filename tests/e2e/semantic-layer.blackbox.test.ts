@@ -66,6 +66,32 @@ describe("semantic-layer CLI blackbox", () => {
     expect(index.exitCode, index.output).toBe(0);
     expect(index.output).toContain("HIERARCHY.md");
 
+    const staged = await container.exec(
+      [
+        "npx",
+        "semantic-layer",
+        "refine",
+        "stage",
+        "--source",
+        "user-message",
+        "--title",
+        "Issuer refinement",
+        "--related",
+        "service.auth",
+        "--summary",
+        "The service auth issuer contract may need refinement.",
+      ],
+      { workingDir: "/workspace" },
+    );
+    expect(staged.exitCode, staged.output).toBe(0);
+    expect(staged.output).toContain("semantic-layer refine: staged");
+
+    const listed = await container.exec(["npx", "semantic-layer", "refine", "list"], {
+      workingDir: "/workspace",
+    });
+    expect(listed.exitCode, listed.output).toBe(0);
+    expect(listed.output).toContain("[staged] Issuer refinement");
+
     const broken = await container.exec(
       [
         "sh",

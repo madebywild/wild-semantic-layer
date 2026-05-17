@@ -11,6 +11,8 @@ The package provides:
   wikilinks, code references, freshness, and configured invariants.
 - `semantic-layer index` - regenerate `vault/HIERARCHY.md` for agents.
 - `semantic-layer init` - scaffold a working vault and config.
+- `semantic-layer refine` - stage, list, promote, or reject evolutionary
+  self-improvement refinement candidates.
 
 See the package README for the consumer-facing reference:
 [`packages/semantic-layer/README.md`](packages/semantic-layer/README.md).
@@ -33,6 +35,10 @@ Post task:
   behavior, API, architecture, or operational knowledge changed by the task.
 - Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
   wikilinks, schema children, and configured external invariants.
+- Stage significant non-assistant inputs with `semantic-layer refine stage` when
+  they may refine the graph but should not be trusted directly yet.
+- Promote staged refinements only after updating the trusted vault, then reject
+  shallow, faulty, secret-bearing, or obsolete staged inputs with a reason.
 - Run `semantic-layer check` and `semantic-layer index`; do not hand off until
   both pass or the exact failures are reported.
 ```

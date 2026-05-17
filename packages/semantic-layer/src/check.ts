@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { z } from "zod";
 import { loadConfig, type LoadConfigOptions } from "./config.js";
+import { validateRefinementStorage } from "./refinement-store.js";
 import { readVault, slug, toIsoDate } from "./vault.js";
 import type { CheckResult, NoteFrontmatter, ResolvedConfig } from "./types.js";
 
@@ -70,6 +71,7 @@ export function checkResolved(config: ResolvedConfig): CheckResult {
   checkCodeRefs(notes, validNotes, config.repoRoot, fail);
   checkFreshness(notes, validNotes, fail);
   checkInvariants(notes, config, fail);
+  for (const error of validateRefinementStorage(config)) fail(`refinement ${error}`);
 
   return { errors, noteCount: notes.size };
 }

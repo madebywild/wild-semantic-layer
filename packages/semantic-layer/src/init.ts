@@ -37,6 +37,8 @@ index:
 frontmatter:
   requiredExtraFields: []
 externalInvariants: []
+evolution:
+  stagingDir: ${vault}/.semantic-layer/refinements
 `;
 }
 
@@ -95,6 +97,10 @@ tags: [meta, agents]
 
 Read HIERARCHY.md first. Load only notes relevant to the task. After changing
 notes, run semantic-layer check and semantic-layer index.
+
+For evolutionary self-improvement, stage durable non-assistant project signals
+with semantic-layer refine stage. Promote staged refinements only after updating
+the trusted vault and passing semantic-layer check.
 `;
 }
 

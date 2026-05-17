@@ -40,6 +40,7 @@ export function createTempVault(
     index: { file: "HIERARCHY.md" },
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
+    evolution: { stagingDir: "vault/.semantic-layer/refinements" },
     ...config,
   };
   writeFileSync(join(dir, "semantic-layer.config.yml"), yamlStringify(fullConfig));
@@ -64,9 +65,11 @@ export function createResolvedConfig(overrides?: Partial<ResolvedConfig>): Resol
     index: { file: "HIERARCHY.md" },
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
+    evolution: { stagingDir: "vault/.semantic-layer/refinements" },
     configFile: undefined,
     repoRoot: overrides?.repoRoot ?? "/tmp/test-repo",
     vaultDir: overrides?.vaultDir ?? "/tmp/test-repo/vault",
+    refinementDir: overrides?.refinementDir ?? "/tmp/test-repo/vault/.semantic-layer/refinements",
     ...overrides,
   };
 }

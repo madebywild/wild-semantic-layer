@@ -46,6 +46,52 @@ export type ExternalInvariant = {
   usedIn: string[];
 };
 
+export type RefinementStatus = "staged" | "promoted" | "rejected";
+
+export type RefinementRecord = {
+  schema_version: 1;
+  id: string;
+  status: RefinementStatus;
+  source: string;
+  title: string;
+  summary: string;
+  evidence: string[];
+  related_notes: string[];
+  created_at: string;
+  updated_at: string;
+  promoted_at?: string;
+  promoted_notes?: string[];
+  rejected_at?: string;
+  rejection_reason?: string;
+};
+
+export type RefinementStageOptions = {
+  source: string;
+  title: string;
+  summary: string;
+  evidence?: string[];
+  relatedNotes?: string[];
+};
+
+export type RefinementListOptions = {
+  status?: RefinementStatus | "all";
+};
+
+export type RefinementPromoteOptions = {
+  id: string;
+  notes: string[];
+};
+
+export type RefinementRejectOptions = {
+  id: string;
+  reason: string;
+};
+
+export type RefinementListResult = {
+  refinements: RefinementRecord[];
+  errors: string[];
+};
+
 export type SemanticLayerConfig = {
   vault: string;
   root: string;
@@ -56,12 +102,16 @@ export type SemanticLayerConfig = {
     requiredExtraFields: string[];
   };
   externalInvariants: ExternalInvariant[];
+  evolution: {
+    stagingDir: string;
+  };
 };
 
 export type ResolvedConfig = SemanticLayerConfig & {
   configFile?: string;
   repoRoot: string;
   vaultDir: string;
+  refinementDir: string;
 };
 
 export type CheckResult = {

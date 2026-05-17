@@ -26,6 +26,8 @@ describe("loadConfig", () => {
       expect(config.index.file).toBe("HIERARCHY.md");
       expect(config.frontmatter.requiredExtraFields).toEqual([]);
       expect(config.externalInvariants).toEqual([]);
+      expect(config.evolution.stagingDir).toBe("vault/.semantic-layer/refinements");
+      expect(config.refinementDir).toBe(join(dir, "vault/.semantic-layer/refinements"));
       expect(config.configFile).toBeUndefined();
     } finally {
       cleanup();
@@ -50,6 +52,7 @@ describe("loadConfig", () => {
       writeYamlConfig(dir, "vault: docs\nroot: .\n", "semantic-layer.config.yaml");
       const config = loadConfig({ cwd: dir });
       expect(config.vault).toBe("docs");
+      expect(config.evolution.stagingDir).toBe("docs/.semantic-layer/refinements");
     } finally {
       cleanup();
     }
@@ -98,6 +101,7 @@ describe("loadConfig", () => {
       writeYamlConfig(dir, "vault: docs\nroot: .\n");
       const config = loadConfig({ cwd: dir, vault: "my-vault" });
       expect(config.vault).toBe("my-vault");
+      expect(config.evolution.stagingDir).toBe("my-vault/.semantic-layer/refinements");
     } finally {
       cleanup();
     }
@@ -122,6 +126,7 @@ describe("loadConfig", () => {
       expect(config.vault).toBe("docs");
       expect(config.index.file).toBe("HIERARCHY.md");
       expect(config.frontmatter.requiredExtraFields).toEqual([]);
+      expect(config.evolution.stagingDir).toBe("docs/.semantic-layer/refinements");
     } finally {
       cleanup();
     }
@@ -170,6 +175,18 @@ describe("loadConfig", () => {
       writeYamlConfig(dir, "vault: vault\nroot: .\n");
       const config = loadConfig({ cwd: dir });
       expect(config.repoRoot).toBe(dir);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("preserves explicit evolution stagingDir from config file", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nevolution:\n  stagingDir: .semantic-layer/refinements\n");
+      const config = loadConfig({ cwd: dir });
+      expect(config.evolution.stagingDir).toBe(".semantic-layer/refinements");
+      expect(config.refinementDir).toBe(join(dir, ".semantic-layer/refinements"));
     } finally {
       cleanup();
     }

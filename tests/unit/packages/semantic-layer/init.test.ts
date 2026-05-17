@@ -24,6 +24,8 @@ describe("runInit", () => {
       const content = readFileSync(configPath, "utf8");
       expect(content).toContain("vault:");
       expect(content).toContain("root:");
+      expect(content).toContain("evolution:");
+      expect(content).toContain("stagingDir: vault/.semantic-layer/refinements");
     } finally {
       cleanup();
     }
@@ -121,6 +123,9 @@ describe("runInit", () => {
       expect(result.vaultDir).toContain("docs");
       expect(readFileSync(join(dir, "semantic-layer.config.yml"), "utf8")).toContain(
         "vault: docs\n",
+      );
+      expect(readFileSync(join(dir, "semantic-layer.config.yml"), "utf8")).toContain(
+        "stagingDir: docs/.semantic-layer/refinements",
       );
     } finally {
       cleanup();
