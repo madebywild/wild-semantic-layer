@@ -2,10 +2,31 @@
 
 ![wild-semantic-layer cover](../../public/cover.webp)
 
-Dendron-style semantic documentation for codebases where agents are first-class
-readers. The package validates a Markdown vault like source code: frontmatter,
-hierarchy, wikilinks, code references, freshness, and configured invariants all
-compile before the docs are trusted.
+`@madebywild/semantic-layer` turns a Markdown documentation vault into a checked
+knowledge graph for humans and coding agents. It is designed for repositories
+that treat documentation as part of the source tree: notes describe durable
+product, architecture, API, and operational facts, and those notes must validate
+before an agent can rely on them.
+
+The package follows Dendron-style conventions where dot-separated filenames
+encode hierarchy, wikilinks connect related notes, schemas constrain allowed
+children, and frontmatter records ownership, status, freshness, and code
+references. `semantic-layer check` compiles that vault by validating structure,
+links, referenced source symbols, time-to-live freshness, project-specific
+frontmatter, configured external invariants, and refinement metadata.
+
+It also provides the workflow pieces agents need around the vault:
+
+- `semantic-layer index` writes an agent-facing `HIERARCHY.md` so readers can
+  orient themselves before loading individual notes.
+- `semantic-layer init` creates the minimal config, root notes, conventions, and
+  schemas needed to start a new vault.
+- `semantic-layer refine` stages, promotes, and rejects untrusted
+  self-improvement signals without merging raw chat or transient context into
+  trusted documentation.
+
+Use it when a repo needs documentation that is navigable, testable, and safe to
+hand to autonomous tools as current project context.
 
 ## Install
 
@@ -256,37 +277,3 @@ Exports:
 - `runRefinementPromote`
 - `runRefinementReject`
 - TypeScript types for config, notes, schemas, and check results
-
-## Packaging Notes
-
-The published package contains only `bin/`, `dist/`, `README.md`, and
-`package.json`. The CLI bin is a small stable wrapper around `dist/cli.js`, so
-workspace installs can create the executable before build output exists.
-`publishConfig` pins npm as the registry and public access for the
-`@madebywild` scope.
-
-## Deployment
-
-This package is deployed to npm as `@madebywild/semantic-layer` from the
-repository's "Release Package" GitHub Actions workflow.
-
-To publish:
-
-1. Bump `packages/semantic-layer/package.json`.
-2. Merge or push the version bump to `main`.
-3. Create a matching semver git tag on that `main` commit, for example `v0.1.0`
-   for package version `0.1.0`.
-4. Push the tag, for example `git push origin v0.1.0`.
-5. The workflow runs `pnpm check`, builds this package, validates the tag,
-   verifies the tagged commit is contained in `origin/main`, skips the npm
-   publish if the same version already exists, and otherwise runs
-   `pnpm publish --access public --no-git-checks`.
-6. The workflow creates the matching GitHub Release from the same tag with
-   generated release notes.
-
-Do not create the GitHub Release manually before publishing. The git tag is the
-release source of truth, and it must match `v0.0.0`, for example `v0.1.0` for
-`0.1.0`.
-
-The workflow uses the `NPM_TOKEN` GitHub secret for npm authentication and
-publishes the scoped package with public npm access.
