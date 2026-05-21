@@ -28,6 +28,43 @@ It also provides the workflow pieces agents need around the vault:
 Use it when a repo needs documentation that is navigable, testable, and safe to
 hand to autonomous tools as current project context.
 
+## Getting the Most from Agents
+
+The package is most useful when the validator is part of the agent's normal
+workflow, not just a command humans remember to run. Add a prompt fragment like
+the one below to `AGENTS.md`, `CLAUDE.md`, Codex instructions, or the equivalent
+agent configuration for the consuming repository.
+
+That prompt makes agents read the generated hierarchy first, load only relevant
+trusted notes, follow `code_refs` before changing code, and keep the vault
+current after their work. In practice, this helps agents get much more out of the
+package because the semantic layer becomes their source of durable project
+context instead of passive documentation.
+
+```md
+### Semantic Layer
+
+Pre task:
+
+- If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
+- Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
+  to the task.
+- Follow wikilinks and `code_refs` from relevant notes before changing code.
+
+Post task:
+
+- Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
+  behavior, API, architecture, or operational knowledge changed by the task.
+- Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
+  wikilinks, schema children, and configured external invariants.
+- Stage significant non-assistant inputs with `semantic-layer refine stage` when
+  they may refine the graph but should not be trusted directly yet.
+- Promote staged refinements only after updating the trusted vault, then reject
+  shallow, faulty, secret-bearing, or obsolete staged inputs with a reason.
+- Run `semantic-layer check` and `semantic-layer index`; do not hand off until
+  both pass or the exact failures are reported.
+```
+
 ## Install
 
 ```bash
@@ -216,30 +253,6 @@ schemas:
 
 `semantic-layer index` writes `vault/HIERARCHY.md`. Agents should read this file
 first, then load only the notes relevant to the task.
-
-## Agent Prompt Fragment
-
-```md
-### Semantic Layer
-
-Pre task:
-- If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
-- Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
-  to the task.
-- Follow wikilinks and `code_refs` from relevant notes before changing code.
-
-Post task:
-- Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
-  behavior, API, architecture, or operational knowledge changed by the task.
-- Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
-  wikilinks, schema children, and configured external invariants.
-- Stage significant non-assistant inputs with `semantic-layer refine stage` when
-  they may refine the graph but should not be trusted directly yet.
-- Promote staged refinements only after updating the trusted vault, then reject
-  shallow, faulty, secret-bearing, or obsolete staged inputs with a reason.
-- Run `semantic-layer check` and `semantic-layer index`; do not hand off until
-  both pass or the exact failures are reported.
-```
 
 ## Programmatic API
 

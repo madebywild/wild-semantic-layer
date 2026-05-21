@@ -1,6 +1,6 @@
 {
   "name": "@madebywild/semantic-layer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Dendron-style semantic documentation validator and indexer.",
   "type": "module",
   "license": "MIT",
