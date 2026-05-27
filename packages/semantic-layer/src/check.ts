@@ -1,25 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
-import { z } from "zod";
+import { existsSync } from "node:fs";
+import { collectCodeRefRequestsFromNotes, resolveCodeRefs } from "./code-refs.js";
 import { loadConfig, type LoadConfigOptions } from "./config.js";
+import { validateNoteFrontmatter } from "./frontmatter.js";
 import { validateRefinementStorage } from "./refinement-store.js";
 import { readVault, slug, toIsoDate } from "./vault.js";
 import type { CheckResult, NoteFrontmatter, ResolvedConfig } from "./types.js";
-
-const noteSchema = z
-  .object({
-    id: z.string().min(1),
-    title: z.string().min(1),
-    desc: z.string().min(1),
-    status: z.enum(["draft", "active", "deprecated"]),
-    owner: z.string().min(1),
-    last_verified: z.union([z.string().min(1), z.date()]),
-    ttl_days: z.number().int().nonnegative(),
-    audience: z.array(z.string()).optional(),
-    code_refs: z.array(z.object({ file: z.string(), symbol: z.string() })).optional(),
-    tags: z.array(z.string()).optional(),
-  })
-  .passthrough();
 
 export function runCheck(options: LoadConfigOptions = {}): CheckResult {
   return checkResolved(loadConfig(options));
@@ -41,15 +26,13 @@ export function checkResolved(config: ResolvedConfig): CheckResult {
   if (!notes.has("root")) fail("vault is missing required `root.md`");
 
   for (const note of notes.values()) {
-    const parsed = noteSchema.safeParse(note.fm);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        fail(`[${note.id}] frontmatter.${issue.path.join(".") || "/"} ${issue.message}`);
-      }
+    const parsed = validateNoteFrontmatter(note);
+    if (!parsed.ok) {
+      for (const error of parsed.errors) fail(error);
       continue;
     }
 
-    const fm = parsed.data as NoteFrontmatter;
+    const fm = parsed.frontmatter;
     fm.last_verified = toIsoDate(fm.last_verified);
     note.fm = fm;
     validNotes.add(note.id);
@@ -164,29 +147,10 @@ function checkCodeRefs(
   repoRoot: string,
   fail: (message: string) => void,
 ) {
-  const root = resolve(repoRoot);
-  for (const note of notes.values()) {
-    if (!validNotes.has(note.id)) continue;
-    for (const ref of note.fm.code_refs ?? []) {
-      const file = resolve(root, ref.file);
-      if (file !== root && !file.startsWith(root + sep)) {
-        fail(`[${note.id}] code_ref escapes repo root: ${ref.file}`);
-        continue;
-      }
-      if (!existsSync(file)) {
-        fail(`[${note.id}] code_ref file does not exist: ${ref.file}`);
-        continue;
-      }
-      const source = readFileSync(file, "utf8");
-      const symbol = escapeReg(ref.symbol);
-      const declaration = new RegExp(
-        `\\b(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function|class|const|let|var|interface|type|def)\\s+${symbol}\\b`,
-      );
-      if (!declaration.test(source)) {
-        fail(`[${note.id}] code_ref ${ref.file}#${ref.symbol} not found`);
-      }
-    }
-  }
+  const collected = collectCodeRefRequestsFromNotes(notes, validNotes);
+  for (const error of collected.errors) fail(error.message);
+  const result = resolveCodeRefs(collected.requests, repoRoot);
+  for (const error of result.errors) fail(error.message);
 }
 
 function checkFreshness(
@@ -236,8 +200,4 @@ function checkInvariants(
       }
     }
   }
-}
-
-function escapeReg(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

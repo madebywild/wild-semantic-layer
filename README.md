@@ -8,8 +8,10 @@ semantic documentation layer that validates a Markdown vault like source code.
 The package provides:
 
 - `semantic-layer check` - validate frontmatter, hierarchy, schemas,
-  wikilinks, code references, freshness, and configured invariants.
-- `semantic-layer index` - regenerate `vault/HIERARCHY.md` for agents.
+  wikilinks, TypeScript/JavaScript symbol references, freshness, and configured
+  invariants.
+- `semantic-layer index` - regenerate `vault/HIERARCHY.md` and
+  `vault/.semantic-layer/code-refs.json` for agents.
 - `semantic-layer init` - scaffold a working vault and config.
 - `semantic-layer refine` - stage, list, promote, or reject evolutionary
   self-improvement refinement candidates.

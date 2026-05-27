@@ -9,3 +9,4 @@ Agents: read this file first, then load notes by id.
   - **demo.runtime** - Runtime contract. Runtime assumptions for the demo app.
 - **meta** - Metadata. Meta notes for contributors and agents.
   - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault.
+  - **meta.testing** - Testing contract. Blackbox e2e coverage expectations for the semantic-layer package.

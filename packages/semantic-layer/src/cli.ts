@@ -69,7 +69,9 @@ try {
       root: values.root,
       vault: values.vault,
     });
-    console.log(`semantic-layer index: wrote ${result.outFile} (${result.noteCount} notes)`);
+    console.log(
+      `semantic-layer index: wrote ${result.outFile} and ${result.codeRefsFile} (${result.noteCount} notes)`,
+    );
     process.exit(0);
   }
 
@@ -115,7 +117,7 @@ Options:
   if (command === "index") {
     return `Usage: semantic-layer index [options]
 
-Regenerate the agent-facing hierarchy index.
+Regenerate the agent-facing hierarchy index and code refs sidecar.
 
 Options:
   --config <path>  Config file path
@@ -175,7 +177,7 @@ Options:
 
 Commands:
   check    Validate a vault (default)
-  index    Regenerate vault/HIERARCHY.md
+  index    Regenerate vault/HIERARCHY.md and code refs sidecar
   init     Scaffold a new vault
   refine   Manage staged evolutionary refinements
   help     Show help

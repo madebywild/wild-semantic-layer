@@ -1,6 +1,6 @@
 {
   "name": "@madebywild/semantic-layer",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Dendron-style semantic documentation validator and indexer.",
   "type": "module",
   "license": "MIT",
@@ -29,6 +29,7 @@
   "files": [
     "bin",
     "dist",
+    "MIGRATIONS.md",
     "README.md"
   ],
   "publishConfig": {
@@ -42,13 +43,13 @@
   },
   "dependencies": {
     "gray-matter": "4.0.3",
+    "typescript": "6.0.3",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "25.7.0",
-    "tsup": "8.5.1",
-    "typescript": "6.0.3"
+    "tsup": "8.5.1"
   },
   "engines": {
     "node": ">=20"

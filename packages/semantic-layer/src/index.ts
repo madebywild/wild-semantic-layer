@@ -11,6 +11,10 @@ export {
 export type {
   CheckResult,
   CodeRef,
+  CodeRefDeclaration,
+  CodeRefKind,
+  CodeRefNamespace,
+  CodeRefsIndex,
   ExternalInvariant,
   Note,
   NoteFrontmatter,
@@ -22,6 +26,7 @@ export type {
   RefinementStageOptions,
   RefinementStatus,
   ResolvedConfig,
+  ResolvedCodeRef,
   SchemaDoc,
   SemanticLayerConfig,
   Status,

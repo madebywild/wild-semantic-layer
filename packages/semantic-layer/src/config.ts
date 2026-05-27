@@ -9,10 +9,12 @@ const CONFIG_FILES = [
   "semantic-layer.config.json",
 ];
 
+export const DEFAULT_CODE_REFS_FILE = ".semantic-layer/code-refs.json";
+
 const DEFAULT_CONFIG: SemanticLayerConfig = {
   vault: "vault",
   root: ".",
-  index: { file: "HIERARCHY.md" },
+  index: { file: "HIERARCHY.md", codeRefsFile: DEFAULT_CODE_REFS_FILE },
   frontmatter: { requiredExtraFields: [] },
   externalInvariants: [],
   evolution: { stagingDir: "" },
@@ -39,9 +41,14 @@ export function loadConfig(options: LoadConfigOptions = {}): ResolvedConfig {
   if (!merged.evolution.stagingDir) {
     merged.evolution.stagingDir = `${merged.vault}/.semantic-layer/refinements`;
   }
+  const index = {
+    file: merged.index.file,
+    codeRefsFile: merged.index.codeRefsFile ?? DEFAULT_CODE_REFS_FILE,
+  };
 
   return {
     ...merged,
+    index,
     configFile,
     repoRoot: resolve(baseDir, merged.root),
     vaultDir: resolve(baseDir, merged.vault),

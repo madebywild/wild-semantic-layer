@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runIndex } from "../../../../packages/semantic-layer/src/index-vault.js";
@@ -153,7 +153,182 @@ describe("runIndex", () => {
     try {
       const result = runIndex({ cwd: tv.dir });
       expect(result.outFile).toContain("HIERARCHY.md");
+      expect(result.codeRefsFile).toContain(".semantic-layer/code-refs.json");
       expect(result.noteCount).toBe(1);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("writes an empty code refs sidecar when no notes reference code", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root"),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const sidecar = JSON.parse(readFileSync(result.codeRefsFile, "utf8")) as {
+        schema_version: number;
+        refs: unknown[];
+      };
+      expect(sidecar).toEqual({ schema_version: 1, refs: [] });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("writes sorted resolved code ref metadata", () => {
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root"),
+      "vault/zeta.md": `---\nid: zeta\ntitle: Zeta\ndesc: Zeta note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/mod.ts\n    symbol: zed\n---\n\nZeta.`,
+      "vault/alpha.md": `---\nid: alpha\ntitle: Alpha\ndesc: Alpha note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/mod.ts\n    symbol: alpha\n---\n\nAlpha.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha, zeta]\n",
+      "src/mod.ts": ["export function zed() { return 1; }", "export const alpha = 1;"].join("\n"),
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const sidecar = JSON.parse(readFileSync(result.codeRefsFile, "utf8")) as {
+        schema_version: number;
+        refs: Array<{
+          note_id: string;
+          ref: { file: string; symbol: string };
+          kind: string;
+          namespaces: string[];
+          line: number;
+          column: number;
+          declarations: Array<{ file: string; kind: string; line: number; column: number }>;
+        }>;
+      };
+
+      expect(sidecar.schema_version).toBe(1);
+      expect(sidecar.refs.map((ref) => ref.note_id)).toEqual(["alpha", "zeta"]);
+      expect(sidecar.refs[0]).toMatchObject({
+        note_id: "alpha",
+        ref: { file: "src/mod.ts", symbol: "alpha" },
+        kind: "const",
+        namespaces: ["value"],
+        line: 2,
+        column: 14,
+        declarations: [{ file: "src/mod.ts", kind: "const", line: 2, column: 14 }],
+      });
+      expect(sidecar.refs[1]).toMatchObject({
+        note_id: "zeta",
+        kind: "function",
+        line: 1,
+        column: 17,
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("uses the referenced file location for import alias sidecar metadata", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/consumer.ts\n    symbol: aliasedTarget\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "src/target.ts": "export function target() { return 1; }\n",
+      "src/consumer.ts": 'import { target as aliasedTarget } from "./target.js";\n',
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const sidecar = JSON.parse(readFileSync(result.codeRefsFile, "utf8")) as {
+        refs: Array<{
+          kind: string;
+          line: number;
+          column: number;
+          declarations: Array<{ file: string; kind: string; line: number; column: number }>;
+        }>;
+      };
+      expect(sidecar.refs[0]).toMatchObject({
+        kind: "function",
+        line: 1,
+        column: 20,
+        declarations: [
+          { file: "src/consumer.ts", kind: "import", line: 1, column: 20 },
+          { file: "src/target.ts", kind: "function", line: 1, column: 17 },
+        ],
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("does not leak external declaration paths into generated code ref metadata", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/fs.ts\n    symbol: readFileSync\n    kind: import\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "src/fs.ts": 'import { readFileSync } from "node:fs";\n',
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const sidecar = JSON.parse(readFileSync(result.codeRefsFile, "utf8")) as {
+        refs: Array<{ declarations: Array<{ file: string }> }>;
+      };
+      expect(sidecar.refs[0]?.declarations).toEqual([
+        { file: "src/fs.ts", kind: "import", line: 1, column: 10 },
+      ]);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("does not overwrite generated files when code ref metadata cannot be generated", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/mod.ts\n    symbol: missing\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "vault/HIERARCHY.md": "existing hierarchy\n",
+      "src/mod.ts": "export const present = 1;\n",
+    });
+
+    try {
+      expect(() => runIndex({ cwd: tv.dir })).toThrow("code_ref src/mod.ts#missing not found");
+      expect(readFileSync(join(tv.vaultDir, "HIERARCHY.md"), "utf8")).toBe("existing hierarchy\n");
+      expect(existsSync(join(tv.vaultDir, ".semantic-layer/code-refs.json"))).toBe(false);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("reports malformed code_refs frontmatter before resolving during index", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  file: src/mod.ts\n  symbol: missing\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "src/mod.ts": "export const present = 1;\n",
+    });
+
+    try {
+      expect(() => runIndex({ cwd: tv.dir })).toThrow("frontmatter.code_refs");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("does not resolve code refs from notes with invalid frontmatter during index", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: invalid\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/missing.ts\n    symbol: missing\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+
+    try {
+      let message = "";
+      try {
+        runIndex({ cwd: tv.dir });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("frontmatter.status");
+      expect(message).not.toContain("code_ref file does not exist");
     } finally {
       tv.cleanup();
     }

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "refs": [
+    {
+      "note_id": "demo.runtime",
+      "ref": {
+        "file": "src/app.js",
+        "symbol": "runtimeName",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 5,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "src/app.js",
+          "kind": "function",
+          "line": 5,
+          "column": 17
+        }
+      ]
+    }
+  ]
+}

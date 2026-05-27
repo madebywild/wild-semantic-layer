@@ -24,6 +24,7 @@ describe("loadConfig", () => {
       expect(config.vault).toBe("vault");
       expect(config.root).toBe(".");
       expect(config.index.file).toBe("HIERARCHY.md");
+      expect(config.index.codeRefsFile).toBe(".semantic-layer/code-refs.json");
       expect(config.frontmatter.requiredExtraFields).toEqual([]);
       expect(config.externalInvariants).toEqual([]);
       expect(config.evolution.stagingDir).toBe("vault/.semantic-layer/refinements");
@@ -125,6 +126,7 @@ describe("loadConfig", () => {
       const config = loadConfig({ cwd: dir });
       expect(config.vault).toBe("docs");
       expect(config.index.file).toBe("HIERARCHY.md");
+      expect(config.index.codeRefsFile).toBe(".semantic-layer/code-refs.json");
       expect(config.frontmatter.requiredExtraFields).toEqual([]);
       expect(config.evolution.stagingDir).toBe("docs/.semantic-layer/refinements");
     } finally {
@@ -187,6 +189,20 @@ describe("loadConfig", () => {
       const config = loadConfig({ cwd: dir });
       expect(config.evolution.stagingDir).toBe(".semantic-layer/refinements");
       expect(config.refinementDir).toBe(join(dir, ".semantic-layer/refinements"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("preserves explicit code refs sidecar path from config file", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(
+        dir,
+        "vault: vault\nindex:\n  file: HIERARCHY.md\n  codeRefsFile: generated/code-refs.json\n",
+      );
+      const config = loadConfig({ cwd: dir });
+      expect(config.index.codeRefsFile).toBe("generated/code-refs.json");
     } finally {
       cleanup();
     }

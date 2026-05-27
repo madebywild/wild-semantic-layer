@@ -37,7 +37,7 @@ export function createTempVault(
   const fullConfig = {
     vault: "vault",
     root: ".",
-    index: { file: "HIERARCHY.md" },
+    index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
     evolution: { stagingDir: "vault/.semantic-layer/refinements" },
@@ -62,7 +62,7 @@ export function createResolvedConfig(overrides?: Partial<ResolvedConfig>): Resol
   return {
     vault: "vault",
     root: ".",
-    index: { file: "HIERARCHY.md" },
+    index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
     evolution: { stagingDir: "vault/.semantic-layer/refinements" },

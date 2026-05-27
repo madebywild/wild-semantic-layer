@@ -17,8 +17,9 @@ frontmatter, configured external invariants, and refinement metadata.
 
 It also provides the workflow pieces agents need around the vault:
 
-- `semantic-layer index` writes an agent-facing `HIERARCHY.md` so readers can
-  orient themselves before loading individual notes.
+- `semantic-layer index` writes an agent-facing `HIERARCHY.md` and a generated
+  code reference sidecar so readers can orient themselves before loading
+  individual notes.
 - `semantic-layer init` creates the minimal config, root notes, conventions, and
   schemas needed to start a new vault.
 - `semantic-layer refine` stages, promotes, and rejects untrusted
@@ -109,6 +110,7 @@ vault: vault
 root: .
 index:
   file: HIERARCHY.md
+  codeRefsFile: .semantic-layer/code-refs.json
 frontmatter:
   requiredExtraFields: [layer]
 externalInvariants:
@@ -128,6 +130,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `vault` | `vault` | Directory containing Dendron-style notes. |
 | `root` | `.` | Repo root used to resolve `code_refs[].file`. |
 | `index.file` | `HIERARCHY.md` | Generated agent-facing index filename. |
+| `index.codeRefsFile` | `.semantic-layer/code-refs.json` | Generated symbol metadata sidecar, relative to the vault directory. |
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
@@ -167,12 +170,48 @@ ttl_days: 90
 code_refs:
   - file: src/auth/gateway.ts
     symbol: handleAuthCallback
+    kind: function
+    namespace: value
 tags: [auth]
 ---
 ```
 
 `id` must match the filename without `.md`. A note named `auth.flow.md` requires
 its parent `auth.md`. The vault requires `root.md`.
+
+### Code References
+
+`code_refs` point at real TypeScript or JavaScript symbols. The minimal shape is
+still compatible with earlier versions:
+
+```yaml
+code_refs:
+  - file: src/auth/gateway.ts
+    symbol: handleAuthCallback
+```
+
+`semantic-layer check` resolves the referenced file with the TypeScript compiler
+and accepts local declarations, exports, imports, aliases, re-exports, overload
+sets, and JavaScript files. Supported source extensions are `.ts`, `.tsx`,
+`.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, and `.cjs`.
+
+When the same symbol name has multiple candidates, add `kind` and/or
+`namespace`:
+
+```yaml
+code_refs:
+  - file: src/auth/types.ts
+    symbol: AuthContext
+    kind: interface
+    namespace: type
+```
+
+Valid `kind` values are `function`, `class`, `const`, `let`, `var`, `interface`,
+`type`, `enum`, `namespace`, `import`, `export`, `method`, and `property`.
+Valid `namespace` values are `value`, `type`, and `namespace`.
+Method and property references must be unique within the referenced file; if two
+classes expose the same member name, move the reference to the containing class
+or another unique declaration.
 
 ## Validation Rules
 
@@ -185,6 +224,8 @@ its parent `auth.md`. The vault requires `root.md`.
 - schema child mismatches in `*.schema.yml`
 - broken `[[wikilinks]]`, including heading anchors
 - missing `code_refs` files or symbols
+- ambiguous `code_refs` symbols that need `kind` and/or `namespace`
+- unsupported `code_refs` source extensions
 - expired `last_verified + ttl_days` for non-deprecated notes
 - configured invariant tokens or values missing from referenced notes
 
@@ -251,8 +292,58 @@ schemas:
 
 ## Generated Index
 
-`semantic-layer index` writes `vault/HIERARCHY.md`. Agents should read this file
-first, then load only the notes relevant to the task.
+`semantic-layer index` writes `vault/HIERARCHY.md` and
+`vault/.semantic-layer/code-refs.json` by default. Agents should read
+`HIERARCHY.md` first, then load only the notes relevant to the task.
+
+The code refs sidecar is generated JSON:
+
+```json
+{
+  "schema_version": 1,
+  "refs": [
+    {
+      "note_id": "auth.flow",
+      "ref": {
+        "file": "src/auth/gateway.ts",
+        "symbol": "handleAuthCallback",
+        "kind": "function",
+        "namespace": "value"
+      },
+      "kind": "function",
+      "namespaces": ["value"],
+      "line": 12,
+      "column": 23,
+      "declarations": [
+        {
+          "file": "src/auth/gateway.ts",
+          "kind": "function",
+          "line": 12,
+          "column": 23
+        }
+      ]
+    }
+  ]
+}
+```
+
+`index` validates note frontmatter, then resolves code refs only for valid notes
+before writing either generated file. If a symbol is missing or ambiguous, it
+leaves the previous generated files in place and reports the same code ref
+failure that `check` would report.
+
+## Migrating to 0.3
+
+Version `0.3.0` replaces text-regex declaration matching with TypeScript
+compiler-backed symbol resolution. Existing `file` + `symbol` references remain
+valid for TypeScript and JavaScript sources, and `kind`/`namespace` are optional
+additions for ambiguous names.
+
+The stricter resolver no longer treats Python-style `def` text as a valid code
+reference. Move non-JS/TS references into prose or split them into a future
+language-specific integration. Consumers do not need to install TypeScript
+separately because it is a runtime dependency of `@madebywild/semantic-layer`.
+See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
 
 ## Programmatic API
 
@@ -269,7 +360,8 @@ if (result.errors.length > 0) {
   throw new Error(result.errors.join("\n"));
 }
 
-runIndex();
+const index = runIndex();
+console.log(index.codeRefsFile);
 runInit({ vault: "vault", owner: "eng@example.com" });
 runRefinementStage({
   source: "user-message",

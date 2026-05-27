@@ -1,6 +1,12 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { loadConfig, type LoadConfigOptions } from "./config.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import {
+  buildCodeRefsIndex,
+  collectCodeRefRequestsFromNotes,
+  resolveCodeRefs,
+} from "./code-refs.js";
+import { DEFAULT_CODE_REFS_FILE, loadConfig, type LoadConfigOptions } from "./config.js";
+import { validateNoteFrontmatter } from "./frontmatter.js";
 import { readVault } from "./vault.js";
 import type { ResolvedConfig } from "./types.js";
 
@@ -10,6 +16,33 @@ export function runIndex(options: LoadConfigOptions = {}) {
 
 export function indexResolved(config: ResolvedConfig) {
   const { notes } = readVault(config.vaultDir);
+  const validNotes = new Set<string>();
+  const frontmatterErrors: Array<{ noteId: string; message: string }> = [];
+  for (const note of notes.values()) {
+    const parsed = validateNoteFrontmatter(note);
+    if (!parsed.ok) {
+      for (const message of parsed.errors) frontmatterErrors.push({ noteId: note.id, message });
+      continue;
+    }
+    note.fm = parsed.frontmatter;
+    validNotes.add(note.id);
+  }
+
+  const collected =
+    frontmatterErrors.length === 0
+      ? collectCodeRefRequestsFromNotes(notes, validNotes)
+      : { requests: [], errors: [] };
+  const codeRefs =
+    frontmatterErrors.length === 0 && collected.errors.length === 0
+      ? resolveCodeRefs(collected.requests, config.repoRoot)
+      : { resolved: [], errors: [] };
+  const codeRefErrors = [...frontmatterErrors, ...collected.errors, ...codeRefs.errors];
+  if (codeRefErrors.length > 0) {
+    throw new Error(
+      `semantic-layer index failed:\n${codeRefErrors.map((error) => `  - ${error.message}`).join("\n")}`,
+    );
+  }
+
   const rows = [...notes.values()].sort((a, b) => {
     if (a.id === "root") return -1;
     if (b.id === "root") return 1;
@@ -29,6 +62,10 @@ export function indexResolved(config: ResolvedConfig) {
       return `${"  ".repeat(depth)}- **${note.id}**${status} - ${note.fm.title}. ${note.fm.desc}`;
     }),
   ];
+  const codeRefsFile = join(config.vaultDir, config.index.codeRefsFile ?? DEFAULT_CODE_REFS_FILE);
+  mkdirSync(dirname(codeRefsFile), { recursive: true });
+  const codeRefsJson = `${JSON.stringify(buildCodeRefsIndex(codeRefs.resolved), null, 2)}\n`;
   writeFileSync(outFile, `${lines.join("\n")}\n`);
-  return { outFile, noteCount: rows.length };
+  writeFileSync(codeRefsFile, codeRefsJson);
+  return { outFile, codeRefsFile, noteCount: rows.length };
 }
