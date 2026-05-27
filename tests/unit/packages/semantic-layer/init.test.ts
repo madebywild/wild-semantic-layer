@@ -24,6 +24,7 @@ describe("runInit", () => {
       const content = readFileSync(configPath, "utf8");
       expect(content).toContain("vault:");
       expect(content).toContain("root:");
+      expect(content).toContain("codeRefsFile: .semantic-layer/code-refs.json");
       expect(content).toContain("evolution:");
       expect(content).toContain("stagingDir: vault/.semantic-layer/refinements");
     } finally {

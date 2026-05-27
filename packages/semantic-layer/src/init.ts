@@ -34,6 +34,7 @@ function config(vault: string) {
 root: .
 index:
   file: HIERARCHY.md
+  codeRefsFile: .semantic-layer/code-refs.json
 frontmatter:
   requiredExtraFields: []
 externalInvariants: []

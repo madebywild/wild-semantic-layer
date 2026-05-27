@@ -120,4 +120,30 @@ describe("index generation (integration)", () => {
       tv.cleanup();
     }
   });
+
+  it("generates code refs sidecar for notes with resolved symbols", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Entry point.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/service.js\n    symbol: issueToken\n    kind: function\n---\n\nRoot.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "src/service.js": "export function issueToken() {\n  return 'token';\n}\n",
+    });
+
+    try {
+      const result = runIndex({ cwd: tv.dir });
+      const sidecar = JSON.parse(readFileSync(result.codeRefsFile, "utf8")) as {
+        refs: Array<{ note_id: string; kind: string; line: number; column: number }>;
+      };
+      expect(sidecar.refs).toEqual([
+        expect.objectContaining({
+          note_id: "root",
+          kind: "function",
+          line: 1,
+          column: 17,
+        }),
+      ]);
+    } finally {
+      tv.cleanup();
+    }
+  });
 });

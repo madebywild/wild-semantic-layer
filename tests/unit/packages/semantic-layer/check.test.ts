@@ -22,7 +22,7 @@ function setupValidVault(extra?: {
     config: {
       vault: "vault",
       root: ".",
-      index: { file: "HIERARCHY.md" },
+      index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
       frontmatter: { requiredExtraFields: [] },
       externalInvariants: [],
       evolution: { stagingDir: "vault/.semantic-layer/refinements" },
@@ -38,7 +38,7 @@ function setupValidVault(extra?: {
 type ResolvableConfig = {
   vault?: string;
   root?: string;
-  index?: { file: string };
+  index?: { file: string; codeRefsFile?: string };
   frontmatter?: { requiredExtraFields: string[] };
   externalInvariants?: Array<{ id: string; value: string; usedIn: string[] }>;
   evolution?: { stagingDir: string };
@@ -350,7 +350,7 @@ describe("checkResolved — missing root", () => {
     const config: ResolvedConfig = {
       vault: "vault",
       root: ".",
-      index: { file: "HIERARCHY.md" },
+      index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
       frontmatter: { requiredExtraFields: [] },
       externalInvariants: [],
       evolution: { stagingDir: "vault/.semantic-layer/refinements" },
@@ -746,6 +746,23 @@ describe("checkResolved — wikilinks", () => {
 // Code refs
 // ============================================================
 
+function setupCodeRefVault(
+  codeRefs: Array<Record<string, unknown>>,
+  sourceFiles: Record<string, string>,
+): { config: ResolvedConfig; cleanup: () => void } {
+  return setupValidVault({
+    files: {
+      "vault/root.md": validNote("root"),
+      "vault/ref.md": validNote("ref", "Ref", "Ref note.", "active", {
+        code_refs: codeRefs,
+      }),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [ref]\n",
+      ...sourceFiles,
+    },
+  });
+}
+
 describe("checkResolved — code refs", () => {
   it("accepts valid code ref to export function", () => {
     const { config, cleanup } = setupValidVault({
@@ -799,6 +816,253 @@ describe("checkResolved — code refs", () => {
         "src/mod.ts": "export const myConst = 42;\n",
       },
     });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    {
+      kind: "let",
+      symbol: "mutableValue",
+      source: "export let mutableValue = 1;\n",
+    },
+    {
+      kind: "var",
+      symbol: "legacyValue",
+      source: "export var legacyValue = 1;\n",
+    },
+    {
+      kind: "interface",
+      symbol: "Contract",
+      source: "export interface Contract { value: string; }\n",
+    },
+    {
+      kind: "type",
+      symbol: "Alias",
+      source: "export type Alias = { value: string };\n",
+    },
+    {
+      kind: "enum",
+      symbol: "Mode",
+      source: "export enum Mode { One = 'one' }\n",
+    },
+    {
+      kind: "namespace",
+      symbol: "Tools",
+      source: "export namespace Tools { export const value = 1; }\n",
+    },
+    {
+      kind: "method",
+      symbol: "run",
+      source: "export class Worker { run() { return 1; } }\n",
+    },
+    {
+      kind: "property",
+      symbol: "size",
+      source: "export class Worker { size = 1; }\n",
+    },
+  ])("accepts $kind declarations", ({ kind, symbol, source }) => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol, kind }], {
+      "src/mod.ts": source,
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ["src/mod.tsx", "export function tsxSymbol() { return <div />; }\n", "tsxSymbol"],
+    ["src/mod.mts", "export function mtsSymbol() { return 1; }\n", "mtsSymbol"],
+    ["src/mod.cts", "function ctsSymbol() { return 1; }\n", "ctsSymbol"],
+    ["src/mod.jsx", "export function jsxSymbol() { return <div />; }\n", "jsxSymbol"],
+    ["src/mod.mjs", "export function mjsSymbol() { return 1; }\n", "mjsSymbol"],
+    ["src/mod.cjs", "function cjsSymbol() { return 1; }\n", "cjsSymbol"],
+  ])("accepts source extension %s", (file, source, symbol) => {
+    const { config, cleanup } = setupCodeRefVault([{ file, symbol }], {
+      [file]: source,
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("resolves explicit refs through the nearest tsconfig", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol: "fromProject" }], {
+      "src/tsconfig.json": JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext" },
+        include: ["other.ts"],
+      }),
+      "src/other.ts": "export const other = 1;\n",
+      "src/mod.ts": "export function fromProject() { return 1; }\n",
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("reports malformed nearest tsconfig files", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol: "fromProject" }], {
+      "src/tsconfig.json": "{",
+      "src/mod.ts": "export function fromProject() { return 1; }\n",
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("tsconfig error"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts local non-exported declarations", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol: "localHelper" }], {
+      "src/mod.ts": "function localHelper() { return 1; }\nexport const publicValue = 1;\n",
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts JavaScript source files", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.js", symbol: "jsHelper" }], {
+      "src/mod.js": "export function jsHelper() { return 1; }\n",
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts imported aliases", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/consumer.ts", symbol: "aliasedTarget" }],
+      {
+        "src/target.ts": "export function target() { return 1; }\n",
+        "src/consumer.ts": 'import { target as aliasedTarget } from "./target.js";\n',
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts import kind narrowing for imported aliases", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/consumer.ts", symbol: "aliasedTarget", kind: "import" }],
+      {
+        "src/target.ts": "export function target() { return 1; }\n",
+        "src/consumer.ts": 'import { target as aliasedTarget } from "./target.js";\n',
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts re-exported aliases", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/reexport.ts", symbol: "publicTarget" }],
+      {
+        "src/target.ts": "export function target() { return 1; }\n",
+        "src/reexport.ts": 'export { target as publicTarget } from "./target.js";\n',
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts export kind narrowing for re-exported aliases", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/reexport.ts", symbol: "publicTarget", kind: "export" }],
+      {
+        "src/target.ts": "export function target() { return 1; }\n",
+        "src/reexport.ts": 'export { target as publicTarget } from "./target.js";\n',
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts overload sets as one symbol", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.ts", symbol: "parseValue", kind: "function" }],
+      {
+        "src/mod.ts": [
+          "export function parseValue(value: string): string;",
+          "export function parseValue(value: number): number;",
+          "export function parseValue(value: string | number) { return value; }",
+        ].join("\n"),
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts class symbols in value and type namespaces", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [
+        { file: "src/mod.ts", symbol: "Widget", namespace: "value" },
+        { file: "src/mod.ts", symbol: "Widget", namespace: "type" },
+      ],
+      {
+        "src/mod.ts": "export class Widget {}\n",
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("uses kind to disambiguate multiple candidates with the same name", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.ts", symbol: "shared", kind: "function" }],
+      {
+        "src/mod.ts": [
+          "export function shared() { return 1; }",
+          "export class Box {",
+          "  shared() { return 2; }",
+          "}",
+        ].join("\n"),
+      },
+    );
     try {
       const result = checkResolved(config);
       expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
@@ -862,6 +1126,115 @@ describe("checkResolved — code refs", () => {
     try {
       const result = checkResolved(config);
       expect(result.errors.some((e) => e.includes("code_ref escapes repo root"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects unsupported source extensions", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.py", symbol: "python_helper" }],
+      {
+        "src/mod.py": "def python_helper():\n    return 1\n",
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref unsupported source type"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects ambiguous value and type namespace candidates", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol: "Shared" }], {
+      "src/mod.ts": [
+        "type Shared = string;",
+        "export function makeShared() {",
+        "  const Shared = 1;",
+        "  return Shared;",
+        "}",
+      ].join("\n"),
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("is ambiguous; add kind and/or namespace"))).toBe(
+        true,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("uses namespace to disambiguate value and type namespace candidates", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.ts", symbol: "Shared", namespace: "type" }],
+      {
+        "src/mod.ts": [
+          "type Shared = string;",
+          "export function makeShared() {",
+          "  const Shared = 1;",
+          "  return Shared;",
+          "}",
+        ].join("\n"),
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects ambiguous multiple candidates in the same namespace", () => {
+    const { config, cleanup } = setupCodeRefVault([{ file: "src/mod.ts", symbol: "shared" }], {
+      "src/mod.ts": [
+        "export function shared() { return 1; }",
+        "export class Box {",
+        "  shared() { return 2; }",
+        "}",
+      ].join("\n"),
+    });
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("is ambiguous; add kind and/or namespace"))).toBe(
+        true,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects incorrect kind narrowing", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.ts", symbol: "count", kind: "function" }],
+      {
+        "src/mod.ts": "export const count = 1;\n",
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref src/mod.ts#count not found"))).toBe(
+        true,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects incorrect namespace narrowing", () => {
+    const { config, cleanup } = setupCodeRefVault(
+      [{ file: "src/mod.ts", symbol: "Shape", namespace: "value" }],
+      {
+        "src/mod.ts": "export interface Shape { value: string; }\n",
+      },
+    );
+    try {
+      const result = checkResolved(config);
+      expect(result.errors.some((e) => e.includes("code_ref src/mod.ts#Shape not found"))).toBe(
+        true,
+      );
     } finally {
       cleanup();
     }

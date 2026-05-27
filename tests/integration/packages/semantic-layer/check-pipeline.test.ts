@@ -144,6 +144,22 @@ describe("check pipeline (integration)", () => {
     }
   });
 
+  it("full check accepts code refs with kind and namespace narrowers", () => {
+    const tv = createTempVault({
+      "vault/root.md": `---\nid: root\ntitle: Root\ndesc: Root note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ncode_refs:\n  - file: src/service.ts\n    symbol: Service\n    kind: class\n    namespace: value\n---\n\nRoot note.`,
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      "src/service.ts": "export class Service {}\n",
+    });
+
+    try {
+      const result = runCheck({ cwd: tv.dir });
+      expect(result.errors).toHaveLength(0);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
   it("vault option override wins over config file", () => {
     const tv = createTempVault(
       {

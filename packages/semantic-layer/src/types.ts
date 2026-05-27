@@ -1,8 +1,49 @@
 export type Status = "draft" | "active" | "deprecated";
 
+export type CodeRefKind =
+  | "function"
+  | "class"
+  | "const"
+  | "let"
+  | "var"
+  | "interface"
+  | "type"
+  | "enum"
+  | "namespace"
+  | "import"
+  | "export"
+  | "method"
+  | "property";
+
+export type CodeRefNamespace = "value" | "type" | "namespace";
+
 export type CodeRef = {
   file: string;
   symbol: string;
+  kind?: CodeRefKind;
+  namespace?: CodeRefNamespace;
+};
+
+export type CodeRefDeclaration = {
+  file: string;
+  kind: CodeRefKind;
+  line: number;
+  column: number;
+};
+
+export type ResolvedCodeRef = {
+  note_id: string;
+  ref: CodeRef;
+  kind: CodeRefKind;
+  namespaces: CodeRefNamespace[];
+  line: number;
+  column: number;
+  declarations: CodeRefDeclaration[];
+};
+
+export type CodeRefsIndex = {
+  schema_version: 1;
+  refs: ResolvedCodeRef[];
 };
 
 export type NoteFrontmatter = {
@@ -97,6 +138,7 @@ export type SemanticLayerConfig = {
   root: string;
   index: {
     file: string;
+    codeRefsFile?: string;
   };
   frontmatter: {
     requiredExtraFields: string[];
@@ -107,7 +149,11 @@ export type SemanticLayerConfig = {
   };
 };
 
-export type ResolvedConfig = SemanticLayerConfig & {
+export type ResolvedConfig = Omit<SemanticLayerConfig, "index"> & {
+  index: {
+    file: string;
+    codeRefsFile?: string;
+  };
   configFile?: string;
   repoRoot: string;
   vaultDir: string;
