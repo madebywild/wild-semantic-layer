@@ -37,11 +37,13 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap",
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap --external fastembed",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@orama/orama": "3.1.18",
+    "@orama/plugin-data-persistence": "3.1.18",
     "gray-matter": "4.0.3",
     "typescript": "6.0.3",
     "yaml": "2.9.0",
@@ -50,6 +52,9 @@
   "devDependencies": {
     "@types/node": "25.7.0",
     "tsup": "8.5.1"
+  },
+  "optionalDependencies": {
+    "fastembed": "2.1.0"
   },
   "engines": {
     "node": ">=20"

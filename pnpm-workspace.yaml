@@ -4,5 +4,6 @@ packages:
 allowBuilds:
   cpu-features: true
   esbuild: true
+  onnxruntime-node: true
   protobufjs: true
   ssh2: true

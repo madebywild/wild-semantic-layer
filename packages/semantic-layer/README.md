@@ -25,6 +25,9 @@ It also provides the workflow pieces agents need around the vault:
 - `semantic-layer refine` stages, promotes, and rejects untrusted
   self-improvement signals without merging raw chat or transient context into
   trusted documentation.
+- `semantic-layer search-index` and `semantic-layer search` build and query a
+  local full-text + vector search index over the vault, so agents can find
+  relevant notes without reading every file.
 
 Use it when a repo needs documentation that is navigable, testable, and safe to
 hand to autonomous tools as current project context.
@@ -91,6 +94,8 @@ semantic-layer index
 semantic-layer init
 semantic-layer refine stage --source user-message --title "Runtime changed" --stdin
 semantic-layer refine list --status staged
+semantic-layer search-index
+semantic-layer search "runtime contract"
 semantic-layer --help
 ```
 
@@ -119,6 +124,14 @@ externalInvariants:
     usedIn: [demo.runtime]
 evolution:
   stagingDir: vault/.semantic-layer/refinements
+search:
+  chunking:
+    strategy: heading
+    maxChunkChars: 2000
+  embedding:
+    provider: fastembed
+  defaultMode: hybrid
+  defaultLimit: 10
 ```
 
 Resolution order is CLI flags, then config file, then defaults. Supported config
@@ -134,6 +147,14 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
+| `search.enabled` | `true` | Whether `search-index`/`search` are usable for this vault. |
+| `search.indexFile` | `.semantic-layer/search-index.msp` | Generated search index file, relative to the vault directory. |
+| `search.manifestFile` | `.semantic-layer/search-index.manifest.json` | Generated search index manifest, relative to the vault directory. |
+| `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
+| `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
+| `search.embedding.provider` | `fastembed` | `fastembed` (local) or `gemini` (hosted). See [Search](#search). |
+| `search.defaultMode` | `hybrid` | Default `search` mode: `fts`, `vector`, or `hybrid`. |
+| `search.defaultLimit` | `10` | Default result count for `search`. |
 
 CLI overrides:
 
@@ -332,6 +353,79 @@ before writing either generated file. If a symbol is missing or ambiguous, it
 leaves the previous generated files in place and reports the same code ref
 failure that `check` would report.
 
+## Search
+
+`semantic-layer search-index` builds a local, file-based search index — full
+text and vector, via [Orama](https://github.com/oramasearch/orama) — over the
+vault's notes, chunked per heading section. `semantic-layer search "<query>"`
+queries it.
+
+```bash
+semantic-layer search-index
+semantic-layer search-index --full
+
+semantic-layer search "runtime contract"
+semantic-layer search "runtime contract" --mode vector --limit 5
+semantic-layer search "runtime contract" --status active --tag runtime --json
+```
+
+The index (`vault/.semantic-layer/search-index.msp`) and its manifest
+(`vault/.semantic-layer/search-index.manifest.json`) are derived, gitignored
+files, cheap to regenerate. `search-index` rebuilds incrementally by default —
+using `git` to find notes that may have changed since the last build, then a
+content hash to skip any of those whose text didn't actually change — and falls
+back to a full rebuild if there's no manifest yet, the vault isn't in a git
+repo, history was rewritten since the last build, or the chunking/embedding
+config changed. Pass `--full` to force one. `search` builds the index
+automatically on first use and refreshes it with `--rebuild`; otherwise a stale
+index (vault changed since the last build) just prints a warning to stderr and
+still searches, so a plain `search` call never has unpredictable rebuild
+latency.
+
+`--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
+`--status`, `--tag`, and `--audience` filter results by frontmatter and may
+each be repeated. `--json` prints machine-readable output instead of the
+human-readable list.
+
+### Embedding providers
+
+By default, vectors come from a local
+[fastembed](https://github.com/Anush008/fastembed-js) model
+(`BAAI/bge-small-en-v1.5`, 384 dimensions) — free, and no network calls after
+the first run, which downloads the model to
+`~/.cache/semantic-layer/fastembed` (override with the
+`SEMANTIC_LAYER_FASTEMBED_CACHE_DIR` env var or `search.embedding.cacheDir`).
+
+```yaml
+search:
+  embedding:
+    provider: fastembed
+```
+
+Set `provider: gemini` to use Google's hosted embeddings instead — useful when
+local embeddings aren't an option (see the Alpine/musl note below):
+
+```yaml
+search:
+  embedding:
+    provider: gemini
+```
+
+Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
+`GEMINI_API_KEY` for convenience).
+
+### Alpine / musl
+
+`fastembed` is an optional dependency: its native ONNX runtime and tokenizer
+bindings have no musl build, so it can't load on `node:*-alpine` or similar. It
+never breaks `npm install` or any other command — only the local embedder is
+affected. When it's unavailable, `search-index` degrades to an FTS-only index
+instead of failing: it prints a warning, `search --mode fts` keeps working, and
+`--mode vector`/`--mode hybrid` fail with a message pointing at the fix rather
+than a native-loader stack trace. To get local vector search inside a musl
+container, use a glibc-based base image; otherwise switch
+`search.embedding.provider` to `gemini`.
+
 ## Migrating to 0.3
 
 Version `0.3.0` replaces text-regex declaration matching with TypeScript
@@ -353,6 +447,8 @@ import {
   runIndex,
   runInit,
   runRefinementStage,
+  runSearchBuild,
+  runSearchQuery,
 } from "@madebywild/semantic-layer";
 
 const result = runCheck({ cwd: process.cwd() });
@@ -369,6 +465,13 @@ runRefinementStage({
   summary: "The runtime contract now targets Node.js 24.",
   relatedNotes: ["demo.runtime"],
 });
+
+await runSearchBuild({ cwd: process.cwd() });
+const { hits } = await runSearchQuery({
+  cwd: process.cwd(),
+  query: "runtime contract",
+  mode: "hybrid",
+});
 ```
 
 Exports:
@@ -381,4 +484,7 @@ Exports:
 - `runRefinementList`
 - `runRefinementPromote`
 - `runRefinementReject`
-- TypeScript types for config, notes, schemas, and check results
+- `runSearchBuild`
+- `runSearchQuery`
+- `FastEmbedUnavailableError`
+- TypeScript types for config, notes, schemas, search results, and check results

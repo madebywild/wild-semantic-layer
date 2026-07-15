@@ -5,10 +5,10 @@ import {
   collectCodeRefRequestsFromNotes,
   resolveCodeRefs,
 } from "./code-refs.js";
-import { DEFAULT_CODE_REFS_FILE, loadConfig, type LoadConfigOptions } from "./config.js";
+import { DEFAULT_CODE_REFS_FILE, type LoadConfigOptions, loadConfig } from "./config.js";
 import { validateNoteFrontmatter } from "./frontmatter.js";
-import { readVault } from "./vault.js";
 import type { ResolvedConfig } from "./types.js";
+import { readVault } from "./vault.js";
 
 export function runIndex(options: LoadConfigOptions = {}) {
   return indexResolved(loadConfig(options));

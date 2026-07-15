@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import matter from "gray-matter";
 import { parse as parseYaml } from "yaml";
-import type { Note, NoteFrontmatter, SchemaDoc } from "./types.js";
+import type { Note, NoteFrontmatter, NoteHeading, SchemaDoc } from "./types.js";
 
 export type Vault = {
   notes: Map<string, Note>;
@@ -28,8 +28,17 @@ export function readVault(vaultDir: string): Vault {
     const id = name.slice(0, -3);
     const parsed = matter(readFileSync(file, "utf8"));
     const headings = new Set<string>();
-    for (const match of parsed.content.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)) {
-      headings.add(slug(match[1] ?? ""));
+    const headingSpans: NoteHeading[] = [];
+    for (const match of parsed.content.matchAll(/^(#{1,6})\s+(.+?)\s*$/gm)) {
+      const text = match[2] ?? "";
+      const headingSlug = slug(text);
+      headings.add(headingSlug);
+      headingSpans.push({
+        text,
+        slug: headingSlug,
+        level: (match[1] ?? "").length,
+        offset: match.index ?? 0,
+      });
     }
     notes.set(id, {
       id,
@@ -37,6 +46,7 @@ export function readVault(vaultDir: string): Vault {
       fm: parsed.data as NoteFrontmatter,
       body: parsed.content,
       headings,
+      headingSpans,
     });
   }
 

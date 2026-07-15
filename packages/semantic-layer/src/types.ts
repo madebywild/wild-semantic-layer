@@ -59,12 +59,21 @@ export type NoteFrontmatter = {
   tags?: string[];
 } & Record<string, unknown>;
 
+/** One Markdown heading line, in document order, with its character offset for chunking. */
+export type NoteHeading = {
+  text: string;
+  slug: string;
+  level: number;
+  offset: number;
+};
+
 export type Note = {
   id: string;
   file: string;
   fm: NoteFrontmatter;
   body: string;
   headings: Set<string>;
+  headingSpans: NoteHeading[];
 };
 
 export type SchemaDoc = {
@@ -133,6 +142,42 @@ export type RefinementListResult = {
   errors: string[];
 };
 
+export type SearchChunkingStrategy = "whole-note" | "heading";
+
+export type SearchMode = "fts" | "vector" | "hybrid";
+
+/** Which embedder produces vectors for the search index; a discriminated union so provider-specific fields stay valid. */
+export type SearchEmbeddingProviderConfig =
+  | { provider: "fastembed"; model?: string; cacheDir?: string }
+  | { provider: "gemini"; model?: string; apiKeyEnv?: string };
+
+export type SearchConfig = {
+  enabled?: boolean;
+  indexFile?: string;
+  manifestFile?: string;
+  chunking?: {
+    strategy: SearchChunkingStrategy;
+    maxChunkChars?: number;
+  };
+  embedding?: SearchEmbeddingProviderConfig;
+  defaultMode?: SearchMode;
+  defaultLimit?: number;
+};
+
+/** `SearchConfig` with every optional field defaulted, as carried on `ResolvedConfig`. */
+export type ResolvedSearchConfig = {
+  enabled: boolean;
+  indexFile: string;
+  manifestFile: string;
+  chunking: {
+    strategy: SearchChunkingStrategy;
+    maxChunkChars: number;
+  };
+  embedding: SearchEmbeddingProviderConfig;
+  defaultMode: SearchMode;
+  defaultLimit: number;
+};
+
 export type SemanticLayerConfig = {
   vault: string;
   root: string;
@@ -147,13 +192,15 @@ export type SemanticLayerConfig = {
   evolution: {
     stagingDir: string;
   };
+  search?: SearchConfig;
 };
 
-export type ResolvedConfig = Omit<SemanticLayerConfig, "index"> & {
+export type ResolvedConfig = Omit<SemanticLayerConfig, "index" | "search"> & {
   index: {
     file: string;
     codeRefsFile?: string;
   };
+  search: ResolvedSearchConfig;
   configFile?: string;
   repoRoot: string;
   vaultDir: string;

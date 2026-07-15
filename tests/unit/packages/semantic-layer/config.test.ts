@@ -207,4 +207,82 @@ describe("loadConfig", () => {
       cleanup();
     }
   });
+
+  it("returns default search config when no config file exists", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = loadConfig({ cwd: dir });
+      expect(config.search).toEqual({
+        enabled: true,
+        indexFile: ".semantic-layer/search-index.msp",
+        manifestFile: ".semantic-layer/search-index.manifest.json",
+        chunking: { strategy: "heading", maxChunkChars: 2000 },
+        embedding: { provider: "fastembed" },
+        defaultMode: "hybrid",
+        defaultLimit: 10,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("merges partial search overrides onto defaults field-by-field", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultLimit: 25\n");
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.defaultLimit).toBe(25);
+      expect(config.search.defaultMode).toBe("hybrid");
+      expect(config.search.embedding).toEqual({ provider: "fastembed" });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("replaces embedding config wholesale rather than merging providers", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(
+        dir,
+        [
+          "vault: vault",
+          "search:",
+          "  embedding:",
+          "    provider: gemini",
+          "    model: text-embedding-004",
+        ].join("\n"),
+      );
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.embedding).toEqual({
+        provider: "gemini",
+        model: "text-embedding-004",
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("replaces chunking config wholesale but fills omitted maxChunkChars", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  chunking:\n    strategy: whole-note\n");
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.chunking).toEqual({ strategy: "whole-note", maxChunkChars: 2000 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects a non-positive maxChunkChars with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(
+        dir,
+        "vault: vault\nsearch:\n  chunking:\n    strategy: heading\n    maxChunkChars: 0\n",
+      );
+      expect(() => loadConfig({ cwd: dir })).toThrow(/maxChunkChars must be a positive integer/);
+    } finally {
+      cleanup();
+    }
+  });
 });

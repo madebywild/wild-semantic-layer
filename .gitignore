@@ -142,3 +142,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# semantic-layer generated search index (derived, cheaply regenerable)
+**/.semantic-layer/search-index.msp
+**/.semantic-layer/search-index.msp.tmp
+**/.semantic-layer/search-index.manifest.json
+**/.semantic-layer/search-index.manifest.json.tmp

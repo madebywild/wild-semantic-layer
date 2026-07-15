@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { loadConfig, type LoadConfigOptions } from "./config.js";
 import { checkResolved } from "./check.js";
+import { type LoadConfigOptions, loadConfig } from "./config.js";
 import { indexResolved } from "./index-vault.js";
 import {
   ensureRefinementDirs,
