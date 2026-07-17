@@ -12,6 +12,7 @@ Primary workspace areas:
 - `apps/demo/`: live consumer app with a real semantic-layer vault.
 - `tests/unit/`: focused unit tests for rules and helpers.
 - `tests/integration/`: source-level API workflow tests.
+- `tests/integration-container/`: the integration suite re-run inside an isolated Linux (node:24) Testcontainers container for glibc parity.
 - `tests/e2e/`: blackbox CLI/package-install tests using Testcontainers.
 
 Use the repository's existing patterns and TypeScript settings. Source imports in `packages/semantic-layer/src/` use `.js` extensions because the package uses `module` and `moduleResolution` set to `NodeNext`.
@@ -63,3 +64,13 @@ pnpm typecheck
 ```
 
 Use the smallest defensible subset only for narrow non-code changes, and state what was skipped and why. If a gate fails, report the exact command and the failure.
+
+### Release / Merge Gate
+
+Before merging a branch into `main` or preparing a release, additionally run the heavier local gate:
+
+```bash
+pnpm check:release
+```
+
+It runs `pnpm check` plus the containerized integration suite (`tests/integration-container/`, Linux/glibc parity via Testcontainers, requires Docker). This gate runs locally by design to save CI compute: do not add it to CI workflows, and do not fold it back into the default `pnpm check`. If Docker is unavailable, report that the release gate was skipped and why instead of silently proceeding.

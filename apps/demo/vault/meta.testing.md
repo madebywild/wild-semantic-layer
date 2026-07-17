@@ -21,7 +21,9 @@ Four vitest projects cover the package, from fastest to most isolated:
   LadybugDB actually ships to). It copies the repo in, installs with a frozen
   lockfile, and asserts the suite passes; the container is removed after the
   run (Testcontainers' Ryuk reaper covers crashes), so LadybugDB temp-file
-  debris never accumulates on the host.
+  debris never accumulates on the host. It is not part of the default
+  `pnpm check`: agents run it locally via `pnpm check:release` before merging
+  into `main` or cutting a release, deliberately keeping it out of CI.
 - `e2e` packs `@madebywild/semantic-layer` once, runs one `node:24`
   Testcontainers runtime, and exercises the published CLI in isolated
   consumer workspaces: a monorepo TypeScript service with custom code-ref
