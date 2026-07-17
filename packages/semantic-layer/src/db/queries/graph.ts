@@ -330,7 +330,8 @@ function indexStalenessReason(config: ResolvedConfig): string | undefined {
   if (!meta) return "index metadata not found";
   const reasons = configStalenessReasons(config, meta);
   if (reasons.length > 0) return reasons[0];
-  if (meta.lastIndexedSha && getHeadSha(config.repoRoot)) {
+  if (meta.lastIndexedSha) {
+    if (!getHeadSha(config.repoRoot)) return "the vault is no longer in a git repository";
     if (!isAncestorOfHead(config.repoRoot, meta.lastIndexedSha)) {
       return "index is not on the current HEAD";
     }

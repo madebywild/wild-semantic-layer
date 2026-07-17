@@ -85,6 +85,23 @@ describe("readIndexMeta / writeIndexMeta", () => {
       cleanup();
     }
   });
+
+  it("returns undefined when the meta file is valid JSON with the wrong shape", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = createResolvedConfig({
+        repoRoot: dir,
+        vaultDir: `${dir}/vault`,
+      });
+      mkdirSync(`${dir}/vault/.semantic-layer`, { recursive: true });
+      // Structurally corrupt (e.g. hand-edited): must read as "no meta" so the index
+      // self-heals with a full rebuild instead of crashing downstream.
+      writeFileSync(indexMetaPath(config), "{}");
+      expect(readIndexMeta(config)).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("isIndexStale (the build-time rebuild decision)", () => {

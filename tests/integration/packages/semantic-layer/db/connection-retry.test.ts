@@ -62,4 +62,26 @@ describe("openDatabaseWithRetry", () => {
       cleanup();
     }
   });
+
+  it("never deletes the WAL file while the database file exists", async () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      // The transient race on a LIVE database: the WAL must be left alone — deleting it here
+      // would be data loss.
+      const dbPath = `${dir}/vault.lbug`;
+      writeFileSync(dbPath, "main db bytes");
+      writeFileSync(`${dbPath}.wal`, "live wal bytes");
+      const open = vi
+        .fn<(dbPath: string) => Database>()
+        .mockImplementationOnce(() => {
+          throw new Error("IO error: could not rename WAL file during checkpoint");
+        })
+        .mockReturnValueOnce({} as Database);
+
+      await openDatabaseWithRetry(dbPath, 3, 1, open);
+      expect(existsSync(`${dbPath}.wal`)).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
 });

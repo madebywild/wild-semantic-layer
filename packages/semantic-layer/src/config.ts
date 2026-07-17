@@ -127,11 +127,16 @@ function mergeSearchConfig(
     );
   }
 
+  const defaultLimit = override.defaultLimit ?? base.defaultLimit;
+  if (!Number.isInteger(defaultLimit) || defaultLimit < 1) {
+    throw new Error(`search.defaultLimit must be a positive integer, got ${defaultLimit}`);
+  }
+
   return {
     enabled: override.enabled ?? base.enabled,
     chunking,
     embedding: override.embedding ?? base.embedding,
     defaultMode,
-    defaultLimit: override.defaultLimit ?? base.defaultLimit,
+    defaultLimit,
   };
 }

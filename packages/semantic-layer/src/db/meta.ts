@@ -32,7 +32,21 @@ export function readIndexMeta(config: ResolvedConfig): IndexMeta | undefined {
   if (!existsSync(path)) return undefined;
   try {
     const raw = readFileSync(path, "utf8");
-    return JSON.parse(raw) as IndexMeta;
+    const meta = JSON.parse(raw) as IndexMeta;
+    // Shape-validate the fields the callers dereference: a structurally corrupt meta (valid JSON,
+    // wrong shape — e.g. hand-edited) must read as "no meta" so the index self-heals with a full
+    // rebuild instead of crashing on a raw TypeError.
+    if (
+      typeof meta.schemaVersion !== "number" ||
+      typeof meta.vaultDir !== "string" ||
+      typeof meta.chunking?.strategy !== "string" ||
+      typeof meta.chunking?.maxChunkChars !== "number" ||
+      typeof meta.embedding?.kind !== "string" ||
+      typeof meta.noteContentHashes !== "object"
+    ) {
+      return undefined;
+    }
+    return meta;
   } catch {
     return undefined;
   }

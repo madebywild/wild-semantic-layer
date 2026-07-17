@@ -401,7 +401,7 @@ semantic-layer graph backlinks <noteId>      # notes linking to <noteId>
 semantic-layer graph links <noteId>          # notes <noteId> links to
 semantic-layer graph descendants <noteId>    # child notes in the hierarchy
 semantic-layer graph ancestors <noteId>      # parent notes in the hierarchy
-semantic-layer graph orphans                 # notes with no wikilinks (either direction) and no code refs
+semantic-layer graph orphans                 # notes (except root) with no wikilinks either direction and no code refs
 semantic-layer graph related <noteId>        # notes with shared tags or common backlinks
 semantic-layer graph impact [--file src/mod.ts] [--symbol foo]
 semantic-layer graph cycles
@@ -442,14 +442,15 @@ Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
 LadybugDB ships a native module that requires glibc + OpenSSL 3. On
 `node:*-alpine` or similar, only the non-database commands work: `check`,
 `init`, and `refine stage|list|reject` load no native code at all. `index`
-(with `search.enabled: true`), `search`, `graph`, and `refine promote` need a
-glibc-based image. `fastembed` is an optional dependency with the same musl
-limitation, but it degrades gracefully: on platforms where its native bindings
-fail to load, `index` builds an FTS-only index instead of failing — it prints
-a warning, `search --mode fts` keeps working, and `--mode vector`/`--mode
-hybrid` fail with a message pointing at the fix rather than a native-loader
-stack trace. To get local vector search inside a container, use a glibc-based
-base image; otherwise switch `search.embedding.provider` to `gemini`.
+(unless `search.enabled: false`), `search`, `graph`, and `refine promote`
+(with `search.enabled: true`) need a glibc-based image. `fastembed` is an
+optional dependency with the same musl limitation, but it degrades gracefully:
+on platforms where its native bindings fail to load, `index` builds an
+FTS-only index instead of failing — it prints a warning, `search --mode fts`
+keeps working, and `--mode vector`/`--mode hybrid` fail with a message
+pointing at the fix rather than a native-loader stack trace. To get local
+vector search inside a container, use a glibc-based base image; otherwise
+switch `search.embedding.provider` to `gemini`.
 
 ## Migrating to 0.3
 
@@ -509,6 +510,7 @@ Exports:
 - `loadConfig`
 - `runCheck`
 - `runIndex`
+- `indexResolved`
 - `runInit`
 - `runRefinementStage`
 - `runRefinementList`

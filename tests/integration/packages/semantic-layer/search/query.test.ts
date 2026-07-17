@@ -305,6 +305,10 @@ The widgets content too.
         { embedder },
       );
       expect(result.hits).toHaveLength(1);
+
+      await expect(
+        querySearch(config, { query: "widgets", mode: "fts", limit: 0 }, { embedder }),
+      ).rejects.toThrow(/limit must be a positive integer/);
     } finally {
       await cleanup(tv);
     }

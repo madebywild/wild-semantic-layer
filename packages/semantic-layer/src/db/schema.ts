@@ -38,18 +38,11 @@ export type FtsIndexDef = {
   propertyNames: string[];
 };
 
-export type VectorIndexDef = {
-  table: string;
-  column: string;
-  name: string;
-};
-
 export type GraphSchema = {
   version: number;
   nodeTables: NodeTableDef[];
   relTables: RelTableDef[];
   ftsIndexes: FtsIndexDef[];
-  vectorIndexes: VectorIndexDef[];
 };
 
 export const GRAPH_SCHEMA: GraphSchema = {
@@ -132,7 +125,6 @@ export const GRAPH_SCHEMA: GraphSchema = {
     { name: "HAS_HEADING", from: "Note", to: "Heading" },
   ],
   ftsIndexes: [{ table: "Chunk", column: "searchText", propertyNames: ["searchText"] }],
-  vectorIndexes: [{ table: "Chunk", column: "embedding", name: VECTOR_INDEX_NAME }],
 };
 
 function createNodeTableSql(table: NodeTableDef, dimensions?: number): string {

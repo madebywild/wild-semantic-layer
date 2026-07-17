@@ -2,11 +2,19 @@
 
 ## Unreleased
 
-Replaces the Orama search backend with [LadybugDB](https://ladybugdb.com), an
-in-process property graph database. The search index and the vault graph are
-now stored in a single `vault/.semantic-layer/vault.lbug` file. This is a
-**breaking change**: any existing Orama search index files are ignored and can
-be deleted.
+Adds a local [LadybugDB](https://ladybugdb.com)-backed vault index (search +
+graph queries) and makes `semantic-layer index` build it. The index lives in a
+single `vault/.semantic-layer/vault.lbug` file. This is a **breaking change**
+for the CLI behavior of `index` and for parts of the library API; vaults and
+configs themselves keep working.
+
+> Note: an intermediate, never-released Orama-based search index existed on
+> the `feature/search-index` branch. If you only used released versions, none
+> of the Orama file/config/API references below apply to you. If you did build
+> from that branch, delete `vault/.semantic-layer/search-index.msp*` and
+> `search-index.manifest.json*` (and their `.gitignore` entries), and note the
+> `search.indexFile`/`search.manifestFile` config keys are gone (silently
+> ignored, not rejected).
 
 ### Breaking changes
 
@@ -14,31 +22,26 @@ be deleted.
   `HIERARCHY.md` and `code-refs.json`. With `search.enabled: false` it writes
   only the two sidecars and does not touch the database (and never loads the
   native module).
-- The old `search-index` command is an alias for `index`.
-- `search.indexFile` and `search.manifestFile` config keys are removed. The
-  database path is fixed at `vault/.semantic-layer/vault.lbug` and its
+- `search-index` is an alias for `index`.
+- The database path is fixed at `vault/.semantic-layer/vault.lbug` and its
   metadata sidecar is `vault/.semantic-layer/vault.lbug.meta.json`.
-- Generated search/graph files changed:
+- New generated files (gitignored):
   - `vault/.semantic-layer/vault.lbug`
   - `vault/.semantic-layer/vault.lbug.meta.json`
-- Old Orama files (`search-index.msp`, `search-index.manifest.json`) are no
-  longer produced and may be removed from `.gitignore`.
 
 ### Library API breaking changes
 
-- `runSearchBuild` and `runSearchQuery` are removed. Use `runSearch(options)`
-  (returns `{ mode, hits, stale, rebuilt }`).
 - `runIndex` / `indexResolved` are now async and return
   `{ db, outFile, codeRefsFile, noteCount }` (`db` is undefined when
   `search.enabled` is false). They accept an optional `embedder` for tests.
 - `runRefinementPromote` is now async.
-- `SearchBuildDeps` / `SearchBuildOptions` / `SearchBuildResult` are removed;
-  `BuildIndexResult` is exported instead, plus the `graph` result types.
-- New export: `runGraph(options)`.
+- New exports: `runSearch(options)` (returns `{ mode, hits, stale, rebuilt }`)
+  and `runGraph(options)`, plus `BuildIndexResult` and the `graph` result
+  types.
 - Platform requirement: `@ladybugdb/core` is a native module that needs
   glibc + OpenSSL 3. `check`, `init`, and `refine stage|list|reject` load no
-  native code and work anywhere; `index`, `search`, `graph`, and
-  `refine promote` require a supported platform.
+  native code and work anywhere; `index` (unless `search.enabled: false`),
+  `search`, `graph`, and `refine promote` require a supported platform.
 
 ### New commands
 
@@ -60,13 +63,13 @@ semantic-layer graph cycles [--limit <n>]
 `search` builds the index automatically on first use and warns (or rebuilds
 with `--rebuild`) when the vault has changed since the last index run.
 
-### Updated generated files (gitignored)
+### New generated files (gitignored)
 
 - `vault/.semantic-layer/vault.lbug`
 - `vault/.semantic-layer/vault.lbug.meta.json`
 - `vault/.semantic-layer/vault.lbug.wal` (transient WAL)
 
-If you maintain your own `.gitignore`, replace the old Orama entries with:
+If you maintain your own `.gitignore`, add:
 
 ```
 **/.semantic-layer/vault.lbug
@@ -89,12 +92,9 @@ search:
   defaultLimit: 10
 ```
 
-`search.indexFile` and `search.manifestFile` are no longer accepted.
-
 ### New / changed dependencies
 
-`@ladybugdb/core` is a new runtime dependency. `@orama/orama` and
-`@orama/plugin-data-persistence` are removed. `fastembed` remains an optional
+`@ladybugdb/core` is a new runtime dependency. `fastembed` remains an optional
 dependency for local embeddings.
 
 ### New environment variables

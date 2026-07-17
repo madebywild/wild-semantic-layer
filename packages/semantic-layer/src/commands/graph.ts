@@ -25,7 +25,6 @@ export type GraphCommandOptions = LoadConfigOptions & {
   symbol?: string;
   limit?: number;
   depth?: number;
-  json?: boolean;
 };
 
 /**

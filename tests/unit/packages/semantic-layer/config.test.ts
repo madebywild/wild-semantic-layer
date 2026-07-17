@@ -303,4 +303,14 @@ describe("loadConfig", () => {
       cleanup();
     }
   });
+
+  it("rejects a non-positive defaultLimit with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultLimit: 0\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/defaultLimit must be a positive integer/);
+    } finally {
+      cleanup();
+    }
+  });
 });

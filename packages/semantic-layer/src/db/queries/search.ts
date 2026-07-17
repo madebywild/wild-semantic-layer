@@ -116,6 +116,9 @@ export async function querySearch(
       }
 
       const limit = opts.limit ?? config.search.defaultLimit;
+      if (!Number.isInteger(limit) || limit < 1) {
+        throw new Error(`semantic-layer search: limit must be a positive integer, got ${limit}`);
+      }
       const queryVector = await resolveQueryVector(config, meta, mode, opts.query, { embedder });
 
       let hits: RawHit[];

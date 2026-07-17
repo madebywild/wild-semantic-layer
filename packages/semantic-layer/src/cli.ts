@@ -157,7 +157,6 @@ try {
       symbol: values.symbol,
       limit: parseOptionalInt(values.limit, "--limit"),
       depth: parseOptionalInt(values.depth, "--depth"),
-      json: values.json,
     });
     if (values.json) {
       console.log(JSON.stringify(result));
@@ -209,7 +208,7 @@ Options:
   }
 
   if (command === "index" || command === "search-index") {
-    return `Usage: semantic-layer ${command ?? "index"} [options]
+    return `Usage: semantic-layer ${command} [options]
 
 Regenerate the LadybugDB vault index and compatibility sidecars.
 
@@ -253,8 +252,8 @@ Subcommands:
   links <noteId>        Notes that <noteId> links to
   descendants <noteId>  Child notes in the hierarchy
   ancestors <noteId>    Parent notes in the hierarchy
-  orphans               Notes with no wikilinks (either direction) and no code refs
-  related <noteId>      Notes with shared tags or backlinks
+  orphans               Notes (except root) with no wikilinks either direction and no code refs
+  related <noteId>      Notes with shared tags or common backlinks
   impact [--file <path>] [--symbol <name>]  Notes declaring code refs matching a file/symbol
   cycles                Detect wikilink cycles
 
