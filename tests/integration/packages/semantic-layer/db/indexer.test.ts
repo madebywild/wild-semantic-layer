@@ -1,11 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { hashNote, buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
+import { queryCount, queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import {
   deleteNoteSubgraph,
   insertNoteSubgraph,
+  updateChunkEmbeddings,
 } from "../../../../../packages/semantic-layer/src/db/insert.js";
-import { createVectorIndex } from "../../../../../packages/semantic-layer/src/db/schema.js";
+import {
+  createVectorIndex,
+  SCHEMA_VERSION,
+} from "../../../../../packages/semantic-layer/src/db/schema.js";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
 import {
   createFakeEmbedder,
@@ -48,6 +53,10 @@ describe.sequential("indexer", () => {
     const original = hashNote(note);
     note.fm.title = "changed";
     expect(hashNote(note)).not.toBe(original);
+
+    const bodyNote = validNote("root");
+    bodyNote.body = `${bodyNote.body}\nMore text.`;
+    expect(hashNote(bodyNote)).not.toBe(original);
   });
 
   it("insertNoteSubgraph inserts a note, headings, chunks and edges", async () => {
@@ -88,7 +97,7 @@ describe.sequential("indexer", () => {
         ];
         await insertNoteSubgraph(conn, note, chunks, {
           hierarchy: [{ parent: "root", child: "child" }],
-          wikilinks: [{ source: "root", target: "child", anchor: "section" }],
+          wikilinks: [{ source: "root", target: "child", anchor: "section", raw: "child#section" }],
           tags: [{ noteId: "root", tag: "test" }],
           audience: [{ noteId: "root", audience: "agent" }],
           codeRefs: [
@@ -102,33 +111,41 @@ describe.sequential("indexer", () => {
           ],
         });
 
-        const noteResult = await conn.query('MATCH (n:Note {id: "root"}) RETURN n.title AS title');
-        expect((await noteResult.getAll())[0]?.title).toBe("root");
-
-        const chunkResult = await conn.query(
-          'MATCH (c:Chunk {noteId: "root"}) RETURN count(c) AS cnt',
+        const noteRows = await queryRows(
+          conn,
+          'MATCH (n:Note {id: "root"}) RETURN n.title AS title',
         );
-        expect(Number((await chunkResult.getAll())[0]?.cnt)).toBe(2);
+        expect(noteRows[0]?.title).toBe("root");
 
-        const headingResult = await conn.query(
-          'MATCH (h:Heading {noteId: "root"}) RETURN count(h) AS cnt',
-        );
-        expect(Number((await headingResult.getAll())[0]?.cnt)).toBe(1);
+        expect(
+          await queryCount(conn, 'MATCH (c:Chunk {noteId: "root"}) RETURN count(c) AS cnt', "cnt"),
+        ).toBe(2);
 
-        const tagResult = await conn.query(
+        expect(
+          await queryCount(
+            conn,
+            'MATCH (h:Heading {noteId: "root"}) RETURN count(h) AS cnt',
+            "cnt",
+          ),
+        ).toBe(1);
+
+        const tagRows = await queryRows(
+          conn,
           'MATCH (t:Tag {name: "test"})<-[:HAS_TAG]-(:Note) RETURN t.name AS name',
         );
-        expect((await tagResult.getAll())[0]?.name).toBe("test");
+        expect(tagRows[0]?.name).toBe("test");
 
-        const childResult = await conn.query(
+        const childRows = await queryRows(
+          conn,
           'MATCH (root:Note {id: "root"})-[:HAS_CHILD]->(child:Note {id: "child"}) RETURN child.id AS id',
         );
-        expect((await childResult.getAll())[0]?.id).toBe("child");
+        expect(childRows[0]?.id).toBe("child");
 
-        const linkResult = await conn.query(
+        const linkRows = await queryRows(
+          conn,
           'MATCH (root:Note {id: "root"})-[:LINKS_TO]->(child:Note {id: "child"}) RETURN root.id AS id',
         );
-        expect((await linkResult.getAll())[0]?.id).toBe("root");
+        expect(linkRows[0]?.id).toBe("root");
       });
     } finally {
       cleanup();
@@ -151,21 +168,43 @@ describe.sequential("indexer", () => {
           tags: [],
           audience: [],
           codeRefs: [],
-          schemaChildren: [],
         });
 
         await deleteNoteSubgraph(conn, "root");
 
-        const noteResult = await conn.query('MATCH (n:Note {id: "root"}) RETURN count(n) AS cnt');
-        expect(Number((await noteResult.getAll())[0]?.cnt)).toBe(0);
-        const chunkResult = await conn.query(
-          'MATCH (c:Chunk {noteId: "root"}) RETURN count(c) AS cnt',
-        );
-        expect(Number((await chunkResult.getAll())[0]?.cnt)).toBe(0);
-        const headingResult = await conn.query(
-          'MATCH (h:Heading {noteId: "root"}) RETURN count(h) AS cnt',
-        );
-        expect(Number((await headingResult.getAll())[0]?.cnt)).toBe(0);
+        expect(
+          await queryCount(conn, 'MATCH (n:Note {id: "root"}) RETURN count(n) AS cnt', "cnt"),
+        ).toBe(0);
+        expect(
+          await queryCount(conn, 'MATCH (c:Chunk {noteId: "root"}) RETURN count(c) AS cnt', "cnt"),
+        ).toBe(0);
+        expect(
+          await queryCount(
+            conn,
+            'MATCH (h:Heading {noteId: "root"}) RETURN count(h) AS cnt',
+            "cnt",
+          ),
+        ).toBe(0);
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("updateChunkEmbeddings rejects a short embeddings array", async () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      await withConnectionForConfig(config, async (conn) => {
+        await createVectorIndex(conn, 8);
+        const chunks = [
+          { id: "root", noteId: "root", chunkIndex: 0, headingPath: "", text: "a" },
+          { id: "root#b", noteId: "root", chunkIndex: 1, headingPath: "", text: "b" },
+        ];
+        // One vector for two chunks: must fail loudly instead of silently misaligning ids.
+        await expect(
+          updateChunkEmbeddings(conn, chunks, [[0, 0, 0, 0, 0, 0, 0, 0]]),
+        ).rejects.toThrow(/missing embedding for chunk root#b/);
       });
     } finally {
       cleanup();
@@ -189,7 +228,7 @@ describe.sequential("indexer", () => {
       expect(result.chunkCount).toBeGreaterThan(0);
       expect(existsSync(result.metaFile)).toBe(true);
       const meta = JSON.parse(readFileSync(result.metaFile, "utf8"));
-      expect(meta.schemaVersion).toBeDefined();
+      expect(meta.schemaVersion).toBe(SCHEMA_VERSION);
     } finally {
       tv.cleanup();
     }

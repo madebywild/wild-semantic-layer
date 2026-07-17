@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { queryCount, queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import { buildIndexWithConnection } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import {
   createFakeEmbedder,
@@ -77,6 +78,33 @@ describe("indexer incremental rebuild", () => {
         expect(meta.noteContentHashes.alpha).not.toBe(firstMeta.noteContentHashes.alpha);
         expect(meta.noteContentHashes.root).toBe(firstMeta.noteContentHashes.root);
         expect(meta.noteContentHashes.beta).toBe(firstMeta.noteContentHashes.beta);
+
+        // The changed note's chunks must be re-embedded — otherwise it silently vanishes from
+        // vector/hybrid results.
+        const embedded = await queryCount(
+          conn,
+          'MATCH (c:Chunk {noteId: "alpha"}) WHERE c.embedding IS NOT NULL RETURN count(c) AS cnt',
+          "cnt",
+        );
+        const total = await queryCount(
+          conn,
+          'MATCH (c:Chunk {noteId: "alpha"}) RETURN count(c) AS cnt',
+          "cnt",
+        );
+        expect(embedded).toBe(total);
+
+        // The FTS index must reflect the edit: the new term is found, the old one is gone.
+        const fts = async (term: string) => {
+          const rows = await queryRows(
+            conn,
+            `CALL QUERY_FTS_INDEX("Chunk", "searchText", $term)
+             YIELD node AS chunk, score
+             RETURN chunk.noteId AS noteId`,
+            { term },
+          );
+          return rows.map((row) => row.noteId);
+        };
+        expect(await fts("Updated")).toContain("alpha");
       });
     } finally {
       tv.cleanup();
@@ -86,7 +114,12 @@ describe("indexer incremental rebuild", () => {
   it("removes a deleted note from the index", async () => {
     const tv = createTempVault({
       "vault/root.md": validNote("root", "Root", "Entry point."),
-      "vault/alpha.md": validNote("alpha", "Alpha", "Alpha note."),
+      "vault/alpha.md": validNote(
+        "alpha",
+        "Alpha",
+        "Alpha note.",
+        "# Alpha\n\nvandelay-industries",
+      ),
       "vault/root.schema.yml":
         "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
     });
@@ -125,6 +158,17 @@ describe("indexer incremental rebuild", () => {
         const meta = readMeta(result.metaFile);
         expect(meta.noteContentHashes).not.toHaveProperty("alpha");
         expect(meta.noteContentHashes).toHaveProperty("root");
+
+        // The FTS index must not retain the deleted note's content (this is exactly the
+        // LadybugDB delete path that fails unless the index is bulk-rebuilt).
+        const ftsRows = await queryRows(
+          conn,
+          `CALL QUERY_FTS_INDEX("Chunk", "searchText", $term)
+           YIELD node AS chunk, score
+           RETURN chunk.noteId AS noteId`,
+          { term: "vandelay" },
+        );
+        expect(ftsRows.length).toBe(0);
       });
     } finally {
       tv.cleanup();
@@ -267,17 +311,19 @@ describe("indexer incremental rebuild", () => {
         expect(result.mode).toBe("incremental");
         expect(result.notesIndexed).toBe(1);
 
-        const inbound = await conn.query(
+        const inbound = await queryRows(
+          conn,
           'MATCH (source:Note {id: "alpha"})-[:LINKS_TO]->(target:Note {id: "root"}) RETURN source.id AS id',
         );
-        expect((await inbound.getAll()).map((row: Record<string, unknown>) => row.id)).toEqual([
-          "alpha",
-        ]);
+        expect(inbound.map((row) => row.id)).toEqual(["alpha"]);
 
-        const outbound = await conn.query(
-          'MATCH (source:Note {id: "alpha"})-[:LINKS_TO]->() RETURN count(source) AS cnt',
-        );
-        expect(Number((await outbound.getAll())[0]?.cnt)).toBe(1);
+        expect(
+          await queryCount(
+            conn,
+            'MATCH (source:Note {id: "alpha"})-[:LINKS_TO]->() RETURN count(source) AS cnt',
+            "cnt",
+          ),
+        ).toBe(1);
       });
     } finally {
       tv.cleanup();
@@ -361,12 +407,12 @@ describe("indexer incremental rebuild", () => {
         expect(result.noteCount).toBe(1);
         expect(readMeta(result.metaFile).noteContentHashes).not.toHaveProperty("ghost");
 
-        const noteRows = await conn.query('MATCH (n:Note {id: "ghost"}) RETURN count(n) AS cnt');
-        expect(Number((await noteRows.getAll())[0]?.cnt)).toBe(0);
-        const chunkRows = await conn.query(
-          'MATCH (c:Chunk {noteId: "ghost"}) RETURN count(c) AS cnt',
-        );
-        expect(Number((await chunkRows.getAll())[0]?.cnt)).toBe(0);
+        expect(
+          await queryCount(conn, 'MATCH (n:Note {id: "ghost"}) RETURN count(n) AS cnt', "cnt"),
+        ).toBe(0);
+        expect(
+          await queryCount(conn, 'MATCH (c:Chunk {noteId: "ghost"}) RETURN count(c) AS cnt', "cnt"),
+        ).toBe(0);
       });
     } finally {
       tv.cleanup();
@@ -416,12 +462,108 @@ describe("indexer incremental rebuild", () => {
         expect(result.mode).toBe("incremental");
         expect(result.notesIndexed).toBe(2);
 
-        const linkRows = await conn.query("MATCH ()-[r:LINKS_TO]->() RETURN count(r) AS cnt");
-        expect(Number((await linkRows.getAll())[0]?.cnt)).toBe(2);
-        const childRows = await conn.query(
-          'MATCH (:Note {id: "root"})-[r:HAS_CHILD]->(:Note {id: "root.alpha"}) RETURN count(r) AS cnt',
+        expect(
+          await queryCount(conn, "MATCH ()-[r:LINKS_TO]->() RETURN count(r) AS cnt", "cnt"),
+        ).toBe(2);
+        expect(
+          await queryCount(
+            conn,
+            'MATCH (:Note {id: "root"})-[r:HAS_CHILD]->(:Note {id: "root.alpha"}) RETURN count(r) AS cnt',
+            "cnt",
+          ),
+        ).toBe(1);
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("removes edges whose content was edited out of a note", async () => {
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/alpha.md": validNote(
+        "alpha",
+        "Alpha",
+        "Alpha note.",
+        "# Alpha\n\nSee [[root]] for context.\n",
+      ),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await withConnectionForConfig(config, async (conn) => {
+        await buildIndexWithConnection(conn, config, {}, { embedder: createFakeEmbedder() });
+
+        const fs = await import("node:fs");
+        fs.writeFileSync(
+          `${tv.vaultDir}/alpha.md`,
+          validNote("alpha", "Alpha", "Alpha updated.", "# Alpha\n\nNo more links.\n"),
         );
-        expect(Number((await childRows.getAll())[0]?.cnt)).toBe(1);
+        gitCommitAll(tv.dir, "drop the wikilink");
+
+        const result = await buildIndexWithConnection(
+          conn,
+          config,
+          {},
+          { embedder: createFakeEmbedder() },
+        );
+        expect(result.mode).toBe("incremental");
+        expect(result.notesIndexed).toBe(1);
+
+        expect(
+          await queryCount(conn, "MATCH ()-[r:LINKS_TO]->() RETURN count(r) AS cnt", "cnt"),
+        ).toBe(0);
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("tracks SCHEMA_CHILD edges through full and schema-only incremental rebuilds", async () => {
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/alpha.md": validNote("alpha", "Alpha", "Alpha note."),
+      "vault/beta.md": validNote("beta", "Beta", "Beta note."),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha, beta]\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await withConnectionForConfig(config, async (conn) => {
+        const childCount = () =>
+          queryCount(
+            conn,
+            'MATCH (:Schema {id: "root"})-[r:SCHEMA_CHILD]->(:Note) RETURN count(r) AS cnt',
+            "cnt",
+          );
+
+        await buildIndexWithConnection(conn, config, {}, { embedder: createFakeEmbedder() });
+        expect(await childCount()).toBe(2);
+
+        // Schema-only edit: no note content changes, but the edge set must still converge.
+        const fs = await import("node:fs");
+        fs.writeFileSync(
+          `${tv.vaultDir}/root.schema.yml`,
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+        );
+        gitCommitAll(tv.dir, "drop beta from schema");
+
+        const result = await buildIndexWithConnection(
+          conn,
+          config,
+          {},
+          { embedder: createFakeEmbedder() },
+        );
+        expect(result.mode).toBe("incremental");
+        expect(result.notesIndexed).toBe(0);
+        expect(await childCount()).toBe(1);
       });
     } finally {
       tv.cleanup();
@@ -504,10 +646,10 @@ describe("indexer incremental rebuild", () => {
         );
         expect(result.mode).toBe("incremental");
 
-        const rows = await conn.query(
+        const all = await queryRows(
+          conn,
           'MATCH (s:Schema {id: "root"}) RETURN s.title AS title, s.namespace AS ns',
         );
-        const all = await rows.getAll();
         expect(all).toHaveLength(1);
         expect(all[0]?.title).toBe("Root Schema");
         expect(all[0]?.ns).toBe(true);
@@ -517,13 +659,14 @@ describe("indexer incremental rebuild", () => {
     }
   });
 
-  it("removes orphaned Tag/Audience nodes when the last referencing note is deleted", async () => {
+  it("removes orphaned Tag/Audience/CodeSymbol nodes when the last referencing note is deleted", async () => {
     const tv = createTempVault({
       "vault/root.md": validNote("root", "Root", "Entry point."),
       "vault/alpha.md":
-        "---\nid: alpha\ntitle: Alpha\ndesc: Alpha note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ntags: [widgets]\naudience: [eng]\n---\n\n# Alpha\n",
+        "---\nid: alpha\ntitle: Alpha\ndesc: Alpha note.\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\ntags: [widgets]\naudience: [eng]\ncode_refs:\n  - file: src/service.ts\n    symbol: issueToken\n---\n\n# Alpha\n",
       "vault/root.schema.yml":
         "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+      "src/service.ts": "export function issueToken() { return 'token'; }\n",
     });
     initGitRepo(tv.dir);
     gitCommitAll(tv.dir, "initial");
@@ -549,10 +692,11 @@ describe("indexer incremental rebuild", () => {
         );
         expect(result.notesRemoved).toBe(1);
 
-        const tagRows = await conn.query("MATCH (t:Tag) RETURN count(t) AS cnt");
-        expect(Number((await tagRows.getAll())[0]?.cnt)).toBe(0);
-        const audienceRows = await conn.query("MATCH (a:Audience) RETURN count(a) AS cnt");
-        expect(Number((await audienceRows.getAll())[0]?.cnt)).toBe(0);
+        expect(await queryCount(conn, "MATCH (t:Tag) RETURN count(t) AS cnt", "cnt")).toBe(0);
+        expect(await queryCount(conn, "MATCH (a:Audience) RETURN count(a) AS cnt", "cnt")).toBe(0);
+        expect(await queryCount(conn, "MATCH (s:CodeSymbol) RETURN count(s) AS cnt", "cnt")).toBe(
+          0,
+        );
       });
     } finally {
       tv.cleanup();

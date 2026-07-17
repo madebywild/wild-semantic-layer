@@ -7,7 +7,7 @@ import {
   resolveCodeRefs,
 } from "../code-refs.js";
 import { DEFAULT_CODE_REFS_FILE, loadConfig, type LoadConfigOptions } from "../config.js";
-import { validateVaultNotes } from "../frontmatter.js";
+import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import type { Embedder } from "../search/embedder.js";
 import type { BuildIndexResult, Note, ResolvedCodeRef, ResolvedConfig } from "../types.js";
 import { readVault } from "../vault.js";
@@ -69,18 +69,14 @@ function readValidNotesAndCodeRefs(config: ResolvedConfig): {
   const { notes } = readVault(config.vaultDir);
   const { validNotes, errors } = validateVaultNotes(notes);
   if (errors.length > 0) {
-    throw new Error(
-      `semantic-layer index failed:\n${errors.map((error) => `  - ${error}`).join("\n")}`,
-    );
+    throw new Error(formatIndexErrors(errors));
   }
 
   const collected = collectCodeRefRequestsFromNotes(validNotes, new Set(validNotes.keys()));
   const codeRefs = resolveCodeRefs(collected.requests, config.repoRoot);
   const codeRefErrors = [...collected.errors, ...codeRefs.errors];
   if (codeRefErrors.length > 0) {
-    throw new Error(
-      `semantic-layer index failed:\n${codeRefErrors.map((error) => `  - ${error.message}`).join("\n")}`,
-    );
+    throw new Error(formatIndexErrors(codeRefErrors.map((error) => error.message)));
   }
   return { validNotes, resolved: codeRefs.resolved };
 }

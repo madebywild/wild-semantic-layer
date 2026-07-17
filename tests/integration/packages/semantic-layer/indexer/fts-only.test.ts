@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import { querySearch } from "../../../../../packages/semantic-layer/src/db/queries/search.js";
 import {
@@ -41,6 +43,12 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
       expect(result.ftsOnly).toBe(true);
       expect(result.noteCount).toBe(2);
       expect(result.chunkCount).toBeGreaterThan(0);
+
+      // Without an embedder there is no embedding column at all (it is created per-dimension).
+      await withConnectionForConfig(config, async (conn) => {
+        const rows = await queryRows(conn, 'CALL table_info("Chunk") RETURN *');
+        expect(rows.some((row) => row.name === "embedding")).toBe(false);
+      });
     } finally {
       tv.cleanup();
     }
@@ -70,6 +78,34 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
       await expect(querySearch(config, { query: "anything", mode: "hybrid" })).rejects.toThrow(
         /FTS-only/,
       );
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("degrades a cold-start vector-mode search to an FTS-only build, then explains itself", async () => {
+    // No index at all + fastembed unavailable: querySearch must swallow the embedder load
+    // failure, build an FTS-only index, and only then fail the vector query with the
+    // actionable FTS-only message (not a native-loader stack trace).
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await expect(querySearch(config, { query: "anything", mode: "hybrid" })).rejects.toThrow(
+        /FTS-only/,
+      );
+
+      const { existsSync } = await import("node:fs");
+      const { dbFileForConfig } = await import(
+        "../../../../../packages/semantic-layer/src/db/connection.js"
+      );
+      expect(existsSync(dbFileForConfig(config))).toBe(true);
     } finally {
       tv.cleanup();
     }

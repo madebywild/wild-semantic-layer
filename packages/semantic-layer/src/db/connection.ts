@@ -1,5 +1,5 @@
 import { Connection, Database } from "@ladybugdb/core";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ResolvedConfig } from "../types.js";
@@ -20,17 +20,11 @@ export function openDatabase(dbPath: string): Database {
   return db;
 }
 
-export function closeConnection(conn: Connection): void {
-  conn.closeSync();
-}
-
-export function closeDatabase(db: Database): void {
-  db.closeSync();
-}
-
 /**
  * Retries the transient WAL-checkpoint race documented below; all other errors fail immediately.
  * The `open` seam exists so tests can drive the retry policy without the native module.
+ * A WAL file whose main database file is gone is unrecoverable crash debris (e.g. the .lbug was
+ * deleted mid-crash): the open can never succeed against it, so it is removed and retried fresh.
  */
 export async function openDatabaseWithRetry(
   dbPath: string,
@@ -48,6 +42,11 @@ export async function openDatabaseWithRetry(
       // LadybugDB 0.18.2's native close can return before its WAL checkpoint thread finishes;
       // the next open may race on renaming the WAL file. Retry only that transient race.
       if (!/wal|checkpoint|renaming/i.test(message)) throw error;
+      if (!existsSync(dbPath)) {
+        for (const suffix of [".wal", ".wal.checkpoint"]) {
+          rmSync(`${dbPath}${suffix}`, { force: true });
+        }
+      }
       await delay(retryDelayMs);
     }
   }

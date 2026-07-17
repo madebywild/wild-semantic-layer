@@ -65,7 +65,9 @@ describe("runIndex", () => {
       expect(parentLine).toBeDefined();
       expect(childLine).toBeDefined();
       // child should have more indentation than parent
-      expect(childLine?.indexOf("-")).toBeGreaterThan(parentLine?.indexOf("-"));
+      const parentIndent = parentLine?.indexOf("-") ?? -1;
+      const childIndent = childLine?.indexOf("-") ?? -1;
+      expect(childIndent).toBeGreaterThan(parentIndent);
     } finally {
       tv.cleanup();
     }

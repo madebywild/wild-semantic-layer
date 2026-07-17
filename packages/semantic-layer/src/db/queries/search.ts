@@ -63,7 +63,10 @@ export async function querySearch(
   const dbFile = dbFileForConfig(config);
 
   let meta = readIndexMeta(config);
-  const willBuild = !existsSync(dbFile) || !meta || opts.rebuild === true;
+  // Snapshot before opening: the open itself creates the file (see buildIndex), so checks made
+  // inside the connection would always see the database as existing.
+  const dbExisted = existsSync(dbFile);
+  const willBuild = !dbExisted || !meta || opts.rebuild === true;
 
   // If this query needs a vector AND a build is about to run, resolve the embedder once here and
   // reuse it for both — otherwise the build step and the query-embedding step would each load
@@ -94,7 +97,7 @@ export async function querySearch(
         await buildIndexWithConnection(
           conn,
           config,
-          { full: opts.rebuild === true },
+          { full: opts.rebuild === true, dbExisted },
           embedder ? { embedder } : {},
         );
         meta = readIndexMeta(config);

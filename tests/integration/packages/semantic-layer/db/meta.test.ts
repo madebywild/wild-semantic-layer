@@ -9,7 +9,17 @@ import {
   type IndexMeta,
 } from "../../../../../packages/semantic-layer/src/db/meta.js";
 import { SCHEMA_VERSION } from "../../../../../packages/semantic-layer/src/db/schema.js";
+import type { Embedder } from "../../../../../packages/semantic-layer/src/search/embedder.js";
 import { createResolvedConfig, createTempDir } from "../../../../helpers.js";
+
+function fakeEmbedder(id: string, dimensions: number): Embedder {
+  return {
+    id,
+    dimensions,
+    embedDocuments: (texts) => Promise.resolve(texts.map(() => new Array(dimensions).fill(0))),
+    embedQuery: () => Promise.resolve(new Array(dimensions).fill(0)),
+  };
+}
 
 function sampleMeta(overrides?: Partial<IndexMeta>): IndexMeta {
   return {
@@ -112,20 +122,20 @@ describe("isIndexStale (the build-time rebuild decision)", () => {
 
   it("is stale when the embedder id mismatches", () => {
     const config = createResolvedConfig();
-    const embedder = { id: "gemini:gemini-embedding-001", dimensions: 3072 } as const;
+    const embedder = fakeEmbedder("gemini:gemini-embedding-001", 3072);
     expect(isIndexStale(config, sampleMeta(), embedder)).toBe(true);
   });
 
   it("is stale when the embedder dimensions mismatch", () => {
     const config = createResolvedConfig();
-    const embedder = { id: "fastembed:fast-bge-small-en-v1.5", dimensions: 768 } as const;
+    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 768);
     expect(isIndexStale(config, sampleMeta(), embedder)).toBe(true);
   });
 
   it("is stale when an embedder is available but the index was built FTS-only", () => {
     const config = createResolvedConfig();
     const meta = sampleMeta({ embedding: { kind: "fts-only" } });
-    const embedder = { id: "fastembed:fast-bge-small-en-v1.5", dimensions: 384 } as const;
+    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 384);
     expect(isIndexStale(config, meta, embedder)).toBe(true);
   });
 
@@ -158,7 +168,7 @@ describe("embedderMeta", () => {
   });
 
   it("returns kind, id and dimensions for an embedder", () => {
-    const embedder = { id: "fastembed:fast-bge-small-en-v1.5", dimensions: 384 } as const;
+    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 384);
     expect(embedderMeta(embedder)).toEqual({
       kind: "embedder",
       id: embedder.id,

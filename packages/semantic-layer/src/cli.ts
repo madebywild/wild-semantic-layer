@@ -11,10 +11,10 @@ import {
 } from "./refinements.js";
 import type { RefinementStatus, SearchMode } from "./types.js";
 
-// DB-dependent commands are loaded lazily so that `check`, `init`, `refine`,
-// `--help`, and `--version` work even when LadybugDB's native module is
-// unavailable (e.g. musl/Alpine Linux). The commands that need the DB will
-// surface their own load error when invoked.
+// DB-dependent commands are loaded lazily so that `check`, `init`,
+// `refine stage|list|reject`, `--help`, and `--version` work even when
+// LadybugDB's native module is unavailable (e.g. musl/Alpine Linux). The
+// commands that need the DB will surface their own load error when invoked.
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -253,9 +253,9 @@ Subcommands:
   links <noteId>        Notes that <noteId> links to
   descendants <noteId>  Child notes in the hierarchy
   ancestors <noteId>    Parent notes in the hierarchy
-  orphans               Notes with no hierarchy parents or inbound links
+  orphans               Notes with no wikilinks (either direction) and no code refs
   related <noteId>      Notes with shared tags or backlinks
-  impact --file <path> [--symbol <name>]  Notes declaring code refs matching a file/symbol
+  impact [--file <path>] [--symbol <name>]  Notes declaring code refs matching a file/symbol
   cycles                Detect wikilink cycles
 
 Options:

@@ -1,12 +1,11 @@
-import {
-  Connection,
-  Database,
-} from "../../../../../packages/semantic-layer/node_modules/@ladybugdb/core";
+import { Connection, Database } from "@ladybugdb/core";
 import { describe, expect, it } from "vitest";
+import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import {
   createSchema,
   createVectorIndex,
   dropSchema,
+  FTS_INDEX_NAME,
   GRAPH_SCHEMA,
   SCHEMA_VERSION,
   VECTOR_INDEX_NAME,
@@ -30,17 +29,15 @@ async function openConnection(
 }
 
 async function listTables(conn: Connection): Promise<string[]> {
-  const result = await conn.query("CALL SHOW_TABLES() RETURN *");
-  const rows = await result.getAll();
-  return rows.map((row: Record<string, unknown>) => String(row.name)).sort();
+  const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
+  return rows.map((row) => String(row.name)).sort();
 }
 
 async function listIndexes(
   conn: Connection,
 ): Promise<Array<{ table: string; name: string; type: string }>> {
-  const result = await conn.query("CALL SHOW_INDEXES() RETURN *");
-  const rows = await result.getAll();
-  return rows.map((row: Record<string, unknown>) => ({
+  const rows = await queryRows(conn, "CALL SHOW_INDEXES() RETURN *");
+  return rows.map((row) => ({
     table: String(row.table_name),
     name: String(row.index_name),
     type: String(row.index_type),
@@ -48,9 +45,8 @@ async function listIndexes(
 }
 
 async function getEmbeddingType(conn: Connection): Promise<string | undefined> {
-  const result = await conn.query('CALL table_info("Chunk") RETURN *');
-  const rows = await result.getAll();
-  const row = rows.find((r: Record<string, unknown>) => r.name === "embedding");
+  const rows = await queryRows(conn, 'CALL table_info("Chunk") RETURN *');
+  const row = rows.find((r) => r.name === "embedding");
   return row ? String(row.type) : undefined;
 }
 
@@ -105,13 +101,20 @@ describe("createSchema", () => {
     }
   });
 
-  it("creates the FTS index on Chunk.text", async () => {
+  it("creates the FTS index on Chunk.searchText", async () => {
     const { dir, cleanup } = createTempDir();
     const { conn, close } = await openConnection(dir);
     try {
       await createSchema(conn);
       const indexes = await listIndexes(conn);
-      expect(indexes.some((idx) => idx.table === "Chunk" && idx.type === "FTS")).toBe(true);
+      expect(
+        indexes.some(
+          (idx) => idx.table === "Chunk" && idx.name === FTS_INDEX_NAME && idx.type === "FTS",
+        ),
+      ).toBe(true);
+      // Pinning the column matters: indexing `text` instead of the newline-normalized
+      // `searchText` reintroduces the fused-token bug (see indexer/full-rebuild.test.ts).
+      expect(FTS_INDEX_NAME).toBe("searchText");
     } finally {
       await close();
       cleanup();

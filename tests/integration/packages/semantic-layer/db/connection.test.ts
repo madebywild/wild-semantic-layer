@@ -1,23 +1,21 @@
 import { existsSync } from "node:fs";
-import { Connection } from "../../../../../packages/semantic-layer/node_modules/@ladybugdb/core";
 import { describe, expect, it } from "vitest";
 import {
-  closeConnection,
-  closeDatabase,
   openDatabase,
   withConnection,
   withConnectionForConfig,
 } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import { createResolvedConfig, createTempDir } from "../../../../helpers.js";
 
-describe("openDatabase / closeDatabase", () => {
+describe("openDatabase", () => {
   it("opens and closes a database file roundtrip", () => {
     const { dir, cleanup } = createTempDir();
     try {
       const dbPath = `${dir}/vault.lbug`;
       const db = openDatabase(dbPath);
       expect(existsSync(dbPath)).toBe(true);
-      closeDatabase(db);
+      db.closeSync();
     } finally {
       cleanup();
     }
@@ -29,22 +27,7 @@ describe("openDatabase / closeDatabase", () => {
       const dbPath = `${dir}/nested/deep/vault.lbug`;
       const db = openDatabase(dbPath);
       expect(existsSync(dbPath)).toBe(true);
-      closeDatabase(db);
-    } finally {
-      cleanup();
-    }
-  });
-});
-
-describe("closeConnection", () => {
-  it("closes an open connection", async () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const db = openDatabase(`${dir}/vault.lbug`);
-      const conn = new Connection(db);
-      await conn.init();
-      closeConnection(conn);
-      closeDatabase(db);
+      db.closeSync();
     } finally {
       cleanup();
     }
@@ -57,8 +40,7 @@ describe("withConnection", () => {
     try {
       const dbPath = `${dir}/vault.lbug`;
       const tableCount = await withConnection(dbPath, async (conn) => {
-        const result = await conn.query("CALL SHOW_TABLES() RETURN *");
-        const rows = await result.getAll();
+        const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
         return rows.length;
       });
       expect(tableCount).toBeGreaterThan(0);
@@ -67,7 +49,7 @@ describe("withConnection", () => {
     }
   });
 
-  it("closes the connection and database even when the callback throws", async () => {
+  it("releases the database even when the callback throws", async () => {
     const { dir, cleanup } = createTempDir();
     try {
       const dbPath = `${dir}/vault.lbug`;
@@ -76,6 +58,10 @@ describe("withConnection", () => {
           throw new Error("boom");
         }),
       ).rejects.toThrow("boom");
+
+      // Proof of release: the file can be opened again directly, no lock or retry needed.
+      const db = openDatabase(dbPath);
+      db.closeSync();
     } finally {
       cleanup();
     }
@@ -91,8 +77,7 @@ describe("withConnectionForConfig", () => {
         vaultDir: `${dir}/vault`,
       });
       const tableCount = await withConnectionForConfig(config, async (conn) => {
-        const result = await conn.query("CALL SHOW_TABLES() RETURN *");
-        const rows = await result.getAll();
+        const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
         return rows.length;
       });
       expect(tableCount).toBeGreaterThan(0);

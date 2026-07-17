@@ -53,7 +53,7 @@ semantic-layer graph descendants <noteId> [--depth <n>]
 semantic-layer graph ancestors <noteId> [--depth <n>]
 semantic-layer graph orphans
 semantic-layer graph related <noteId> [--limit <n>]
-semantic-layer graph impact --file <path> [--symbol <name>]
+semantic-layer graph impact [--file <path>] [--symbol <name>]
 semantic-layer graph cycles [--limit <n>]
 ```
 
@@ -66,8 +66,7 @@ with `--rebuild`) when the vault has changed since the last index run.
 - `vault/.semantic-layer/vault.lbug.meta.json`
 - `vault/.semantic-layer/vault.lbug.wal` (transient WAL)
 
-If you maintain your own `.gitignore` rather than relying on this package's
-defaults, replace the old Orama entries with:
+If you maintain your own `.gitignore`, replace the old Orama entries with:
 
 ```
 **/.semantic-layer/vault.lbug
@@ -101,7 +100,8 @@ dependency for local embeddings.
 ### New environment variables
 
 - `SEMANTIC_LAYER_FASTEMBED_CACHE_DIR` — overrides where the local fastembed
-  model is cached (default `~/.cache/semantic-layer/fastembed`).
+  model is cached (default `$XDG_CACHE_HOME/semantic-layer/fastembed`, or
+  `~/.cache/semantic-layer/fastembed` when `XDG_CACHE_HOME` is unset).
 - `SEMANTIC_LAYER_GEMINI_API_KEY` (falls back to `GEMINI_API_KEY`) — API key
   for the optional hosted `gemini` embedding provider.
 

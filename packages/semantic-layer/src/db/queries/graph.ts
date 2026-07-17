@@ -1,6 +1,6 @@
 import type { Connection } from "@ladybugdb/core";
 import { existsSync } from "node:fs";
-import { getHeadSha, isAncestorOfHead } from "../../search/git-diff.js";
+import { candidateNoteIdsSinceSha, getHeadSha, isAncestorOfHead } from "../../search/git-diff.js";
 import type {
   AncestorResult,
   BacklinkResult,
@@ -333,6 +333,11 @@ function indexStalenessReason(config: ResolvedConfig): string | undefined {
   if (meta.lastIndexedSha && getHeadSha(config.repoRoot)) {
     if (!isAncestorOfHead(config.repoRoot, meta.lastIndexedSha)) {
       return "index is not on the current HEAD";
+    }
+    if (
+      candidateNoteIdsSinceSha(config.repoRoot, config.vaultDir, meta.lastIndexedSha).length > 0
+    ) {
+      return "the vault has changed since the index was last built";
     }
   }
   return undefined;

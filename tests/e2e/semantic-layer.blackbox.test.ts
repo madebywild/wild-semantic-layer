@@ -220,6 +220,38 @@ describe("semantic-layer CLI blackbox", () => {
     const parsedImpact = JSON.parse(impact.output) as { hits: Array<{ noteId: string }> };
     expect(parsedImpact.hits.map((hit) => hit.noteId)).toContain("service.auth");
 
+    // Flag plumbing: full rebuild, the search-index alias, filters, --version, and default check.
+    const fullRebuild = await cli(workspace, ["index", "--full"]);
+    expect(fullRebuild.exitCode, fullRebuild.output).toBe(0);
+    // The container has no working fastembed, so the suffix may be " (fts-only)".
+    expect(fullRebuild.output).toMatch(/full( \(fts-only\))? rebuild/);
+
+    const alias = await cli(workspace, ["search-index"]);
+    expect(alias.exitCode, alias.output).toBe(0);
+    expect(alias.output).toContain("rebuild");
+
+    const filtered = await cli(workspace, [
+      "search",
+      "authentication",
+      "--mode",
+      "fts",
+      "--status",
+      "active",
+    ]);
+    expect(filtered.exitCode, filtered.output).toBe(0);
+    expect(filtered.output).toContain("service.auth");
+
+    const limited = await cli(workspace, ["search", "service", "--mode", "fts", "--limit", "1"]);
+    expect(limited.exitCode, limited.output).toBe(0);
+    expect(limited.output).toContain("1 hit(s)");
+
+    const version = await cli(workspace, ["--version"]);
+    expect(version.exitCode, version.output).toBe(0);
+
+    const defaultCheck = await cli(workspace, []);
+    expect(defaultCheck.exitCode, defaultCheck.output).toBe(0);
+    expect(defaultCheck.output).toContain("semantic-layer: ok");
+
     // Missing arguments and invalid values must exit non-zero with a readable error.
     for (const args of [
       ["search"],
@@ -228,6 +260,7 @@ describe("semantic-layer CLI blackbox", () => {
       ["graph", "impact"],
       ["search", "x", "--mode", "bogus"],
       ["search", "x", "--limit", "0"],
+      ["nope"],
     ]) {
       const result = await cli(workspace, args);
       expect(result.exitCode, `expected failure for: ${args.join(" ")}`).not.toBe(0);

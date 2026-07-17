@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { queryCount, queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
+import { SCHEMA_VERSION } from "../../../../../packages/semantic-layer/src/db/schema.js";
 import {
   createFakeEmbedder,
   createResolvedConfig,
@@ -41,11 +43,10 @@ describe("indexer full rebuild", () => {
       expect(result.ftsOnly).toBe(false);
 
       await withConnectionForConfig(config, async (conn) => {
-        const noteResult = await conn.query("MATCH (n:Note) RETURN count(n) AS cnt");
-        expect(Number((await noteResult.getAll())[0]?.cnt)).toBe(3);
-
-        const chunkResult = await conn.query("MATCH (c:Chunk) RETURN count(c) AS cnt");
-        expect(Number((await chunkResult.getAll())[0]?.cnt)).toBe(result.chunkCount);
+        expect(await queryCount(conn, "MATCH (n:Note) RETURN count(n) AS cnt", "cnt")).toBe(3);
+        expect(await queryCount(conn, "MATCH (c:Chunk) RETURN count(c) AS cnt", "cnt")).toBe(
+          result.chunkCount,
+        );
       });
     } finally {
       tv.cleanup();
@@ -78,25 +79,26 @@ describe("indexer full rebuild", () => {
 
       await withConnectionForConfig(config, async (conn) => {
         for (const term of ["Zebra", "Entry", "unique-search-term-12345"]) {
-          const stmt = await conn.prepare(
+          const rows = await queryRows(
+            conn,
             `CALL QUERY_FTS_INDEX("Chunk", "searchText", $term)
              YIELD node AS chunk, score
              RETURN chunk.noteId AS noteId`,
+            { term },
           );
-          const result = await conn.execute(stmt, { term });
-          const single = Array.isArray(result) ? result[0] : result;
-          const rows = await single.getAll();
           expect(
-            rows.map((row: Record<string, unknown>) => row.noteId),
+            rows.map((row) => row.noteId),
             `FTS hit for "${term}"`,
           ).toContain("root");
         }
 
-        // The display copy must remain pristine (newlines intact, no normalization artifacts).
-        const textRows = await conn.query('MATCH (c:Chunk {id: "root"}) RETURN c.text AS text');
-        const firstText = String((await textRows.getAll())[0]?.text ?? "");
-        expect(firstText).toContain("\n");
-        expect(firstText).not.toContain("zzsl");
+        // The display copy must remain pristine (newlines intact, exactly as chunked).
+        const textRows = await queryRows(
+          conn,
+          'MATCH (c:Chunk {id: "root"}) RETURN c.text AS text',
+        );
+        const firstText = String(textRows[0]?.text ?? "");
+        expect(firstText).toBe("Zebra\nEntry point.");
       });
     } finally {
       tv.cleanup();
@@ -118,10 +120,11 @@ describe("indexer full rebuild", () => {
       await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       await withConnectionForConfig(config, async (conn) => {
-        const result = await conn.query(
+        const rows = await queryRows(
+          conn,
           'MATCH (root:Note {id: "root"})-[:HAS_CHILD]->(alpha:Note {id: "root.alpha"}) RETURN alpha.id AS id',
         );
-        expect((await result.getAll())[0]?.id).toBe("root.alpha");
+        expect(rows[0]?.id).toBe("root.alpha");
       });
     } finally {
       tv.cleanup();
@@ -143,10 +146,13 @@ describe("indexer full rebuild", () => {
       await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       await withConnectionForConfig(config, async (conn) => {
-        const result = await conn.query(
-          'MATCH (root:Note {id: "root"})-[:LINKS_TO]->(alpha:Note {id: "alpha"}) RETURN count(*) AS cnt',
-        );
-        expect(Number((await result.getAll())[0]?.cnt)).toBe(2);
+        expect(
+          await queryCount(
+            conn,
+            'MATCH (root:Note {id: "root"})-[:LINKS_TO]->(alpha:Note {id: "alpha"}) RETURN count(*) AS cnt',
+            "cnt",
+          ),
+        ).toBe(2);
       });
     } finally {
       tv.cleanup();
@@ -168,10 +174,11 @@ describe("indexer full rebuild", () => {
       await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       await withConnectionForConfig(config, async (conn) => {
-        const result = await conn.query(
+        const rows = await queryRows(
+          conn,
           'MATCH (n:Note {id: "root"})-[:DECLARES_CODE_REF]->(s:CodeSymbol {symbol: "issueToken"}) RETURN s.file AS file',
         );
-        expect((await result.getAll())[0]?.file).toBe("src/service.ts");
+        expect(rows[0]?.file).toBe("src/service.ts");
       });
     } finally {
       tv.cleanup();
@@ -192,10 +199,13 @@ describe("indexer full rebuild", () => {
       await buildIndex(config, {}, { embedder: createFakeEmbedder(8) });
 
       await withConnectionForConfig(config, async (conn) => {
-        const result = await conn.query(
-          "MATCH (c:Chunk) WHERE c.embedding IS NOT NULL RETURN count(c) AS cnt",
-        );
-        expect(Number((await result.getAll())[0]?.cnt)).toBeGreaterThan(0);
+        expect(
+          await queryCount(
+            conn,
+            "MATCH (c:Chunk) WHERE c.embedding IS NOT NULL RETURN count(c) AS cnt",
+            "cnt",
+          ),
+        ).toBeGreaterThan(0);
       });
     } finally {
       tv.cleanup();
@@ -216,9 +226,39 @@ describe("indexer full rebuild", () => {
       const result = await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       const meta = JSON.parse(readFileSync(result.metaFile, "utf8"));
-      expect(meta.schemaVersion).toBeDefined();
+      expect(meta.schemaVersion).toBe(SCHEMA_VERSION);
       expect(meta.embedding.id).toContain("fake");
       expect(meta.noteContentHashes).toHaveProperty("root");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("rebuilds fully when the database file is deleted but the meta sidecar survives", async () => {
+    // Regression pin: openDatabase re-creates the file on open, so an existence check made
+    // inside the connection would take the incremental path on an empty database — every hash
+    // matches the stale meta, nothing is re-inserted, and the index stays empty forever.
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/alpha.md": validNote("alpha", "Alpha", "Alpha note."),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const first = await buildIndex(config, {}, { embedder: createFakeEmbedder() });
+      expect(first.noteCount).toBe(2);
+
+      const { rmSync } = await import("node:fs");
+      rmSync(first.dbFile);
+
+      const result = await buildIndex(config, {}, { embedder: createFakeEmbedder() });
+      expect(result.mode).toBe("full");
+      expect(result.noteCount).toBe(2);
+      expect(result.chunkCount).toBeGreaterThan(0);
     } finally {
       tv.cleanup();
     }
@@ -244,9 +284,7 @@ describe("indexer full rebuild", () => {
       // Write the legacy-shape fixture to a scratch path and copy it into place after close:
       // reopening the same database file twice in one process trips LadybugDB 0.18.2's WAL
       // checkpoint race (see connection.ts), while the target path was never opened here.
-      const { Connection } = await import(
-        "../../../../../packages/semantic-layer/node_modules/@ladybugdb/core"
-      );
+      const { Connection } = await import("@ladybugdb/core");
       const scratch = `${tv.dir}/fixture.lbug`;
       const db = openDatabase(scratch);
       const conn = new Connection(db);
@@ -260,6 +298,8 @@ describe("indexer full rebuild", () => {
       await conn.query("CREATE (c:Chunk {id: 'old', noteId: 'root', text: 'stale content'})");
       conn.closeSync();
       db.closeSync();
+      // Let LadybugDB's WAL checkpoint finish before snapshotting the file (see connection.ts).
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       const { copyFileSync, mkdirSync } = await import("node:fs");
       const { dirname } = await import("node:path");
@@ -272,16 +312,67 @@ describe("indexer full rebuild", () => {
       expect(result.noteCount).toBe(1);
 
       await withConnectionForConfig(config, async (conn2) => {
-        const stmt = await conn2.prepare(
+        const rows = await queryRows(
+          conn2,
           `CALL QUERY_FTS_INDEX("Chunk", "searchText", $term)
            YIELD node AS chunk, score
            RETURN chunk.noteId AS noteId`,
+          { term: "upgrade" },
         );
-        const queryResult = await conn2.execute(stmt, { term: "upgrade" });
-        const single = Array.isArray(queryResult) ? queryResult[0] : queryResult;
-        const rows = await single.getAll();
-        expect(rows.map((row: Record<string, unknown>) => row.noteId)).toContain("root");
+        expect(rows.map((row) => row.noteId)).toContain("root");
       });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("rebuilds fully when the stored meta's schema version is older", async () => {
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const first = await buildIndex(config, {}, { embedder: createFakeEmbedder() });
+      expect(first.mode).toBe("full");
+
+      // Age the meta by one schema version; the next build must go full, not incremental.
+      const meta = JSON.parse(readFileSync(first.metaFile, "utf8")) as { schemaVersion: number };
+      meta.schemaVersion -= 1;
+      writeFileSync(first.metaFile, `${JSON.stringify(meta, null, 2)}\n`);
+
+      const result = await buildIndex(config, {}, { embedder: createFakeEmbedder() });
+      expect(result.mode).toBe("full");
+      expect(result.noteCount).toBe(1);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("rebuilds fully when the configured embedder identity changes", async () => {
+    const tv = createTempVault({
+      "vault/root.md": validNote("root", "Root", "Entry point."),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+    initGitRepo(tv.dir);
+    gitCommitAll(tv.dir, "initial");
+
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await buildIndex(config, {}, { embedder: createFakeEmbedder(8) });
+
+      const result = await buildIndex(config, {}, { embedder: createFakeEmbedder(16) });
+      expect(result.mode).toBe("full");
+
+      const meta = JSON.parse(readFileSync(result.metaFile, "utf8")) as {
+        embedding: { kind: string; id: string; dimensions: number };
+      };
+      expect(meta.embedding).toEqual({ kind: "embedder", id: "fake:16", dimensions: 16 });
     } finally {
       tv.cleanup();
     }

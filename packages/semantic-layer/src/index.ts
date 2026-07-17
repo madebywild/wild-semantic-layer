@@ -1,7 +1,7 @@
 export { runCheck } from "./check.js";
 export { loadConfig } from "./config.js";
 export { runGraph } from "./commands/graph.js";
-export { runIndex } from "./commands/index.js";
+export { indexResolved, runIndex } from "./commands/index.js";
 export { runSearch } from "./commands/search.js";
 export { runInit } from "./init.js";
 export {

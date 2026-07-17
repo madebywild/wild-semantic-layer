@@ -40,7 +40,7 @@ export async function createEmbedder(config: SearchEmbeddingProviderConfig): Pro
 /**
  * The identity `createEmbedder` would resolve to for this config, computed without loading the
  * real model (no ONNX session, no network call) — for staleness checks that need to compare
- * against a manifest cheaply, not to actually embed anything.
+ * against the index meta sidecar cheaply, not to actually embed anything.
  */
 export function describeConfiguredEmbedder(config: SearchEmbeddingProviderConfig): {
   id: string;

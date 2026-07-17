@@ -93,9 +93,10 @@ function mergeConfig(
 }
 
 /**
- * Merges a search config override onto its defaults. `chunking` and `embedding` are replaced
- * wholesale (not merged field-by-field) since `embedding` is a discriminated union — a shallow
- * merge across a provider change could otherwise produce an invalid mixed shape.
+ * Merges a search config override onto its defaults. `embedding` is replaced wholesale (it's a
+ * discriminated union — a shallow merge across a provider change could produce an invalid mixed
+ * shape); `chunking.strategy` is replaced wholesale too, while `maxChunkChars` falls back to the
+ * base value when omitted.
  */
 function mergeSearchConfig(
   base: ResolvedSearchConfig,
@@ -108,9 +109,21 @@ function mergeSearchConfig(
         maxChunkChars: override.chunking.maxChunkChars ?? base.chunking.maxChunkChars,
       }
     : base.chunking;
+  if (chunking.strategy !== "heading" && chunking.strategy !== "whole-note") {
+    throw new Error(
+      `search.chunking.strategy must be "heading" or "whole-note", got ${JSON.stringify(chunking.strategy)}`,
+    );
+  }
   if (!Number.isInteger(chunking.maxChunkChars) || chunking.maxChunkChars < 1) {
     throw new Error(
       `search.chunking.maxChunkChars must be a positive integer, got ${chunking.maxChunkChars}`,
+    );
+  }
+
+  const defaultMode = override.defaultMode ?? base.defaultMode;
+  if (defaultMode !== "fts" && defaultMode !== "vector" && defaultMode !== "hybrid") {
+    throw new Error(
+      `search.defaultMode must be "fts", "vector", or "hybrid", got ${JSON.stringify(defaultMode)}`,
     );
   }
 
@@ -118,7 +131,7 @@ function mergeSearchConfig(
     enabled: override.enabled ?? base.enabled,
     chunking,
     embedding: override.embedding ?? base.embedding,
-    defaultMode: override.defaultMode ?? base.defaultMode,
+    defaultMode,
     defaultLimit: override.defaultLimit ?? base.defaultLimit,
   };
 }

@@ -14,10 +14,11 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --project=unit --project=integration",
     "test:e2e": "vitest run --project=e2e",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck && tsc --noEmit -p tests/tsconfig.json"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
+    "@ladybugdb/core": "0.18.2",
     "@madebywild/agent-harness-framework": "^1.10.1",
     "@types/node": "25.7.0",
     "@vitest/coverage-v8": "^4.1.6",

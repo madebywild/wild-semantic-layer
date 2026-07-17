@@ -196,9 +196,17 @@ export async function createSchema(conn: Connection, dimensions?: number): Promi
       // rebuild that follows (triggered by the schema-version check) recreates it properly.
       continue;
     }
-    const properties = fts.propertyNames.map((name) => `"${name}"`).join(", ");
-    await conn.query(`CALL CREATE_FTS_INDEX("${fts.table}", "${fts.column}", [${properties}])`);
+    await createFtsIndex(conn, fts);
   }
+}
+
+function createFtsIndexSql(fts: FtsIndexDef): string {
+  const properties = fts.propertyNames.map((name) => `"${name}"`).join(", ");
+  return `CALL CREATE_FTS_INDEX("${fts.table}", "${fts.column}", [${properties}])`;
+}
+
+async function createFtsIndex(conn: Connection, fts: FtsIndexDef): Promise<void> {
+  await conn.query(createFtsIndexSql(fts));
 }
 
 async function columnExists(
@@ -223,8 +231,7 @@ export async function repairFtsIndex(conn: Connection): Promise<void> {
     if (await indexExists(conn, fts.table, FTS_INDEX_NAME)) {
       await conn.query(`CALL DROP_FTS_INDEX("${fts.table}", "${FTS_INDEX_NAME}")`);
     }
-    const properties = fts.propertyNames.map((name) => `"${name}"`).join(", ");
-    await conn.query(`CALL CREATE_FTS_INDEX("${fts.table}", "${fts.column}", [${properties}])`);
+    await createFtsIndex(conn, fts);
   }
 }
 
@@ -279,10 +286,7 @@ export async function createVectorIndex(conn: Connection, dimensions: number): P
 
     const chunkFts = GRAPH_SCHEMA.ftsIndexes.find((fts) => fts.table === "Chunk");
     if (chunkFts) {
-      const properties = chunkFts.propertyNames.map((name) => `"${name}"`).join(", ");
-      await conn.query(
-        `CALL CREATE_FTS_INDEX("${chunkFts.table}", "${chunkFts.column}", [${properties}])`,
-      );
+      await createFtsIndex(conn, chunkFts);
     }
 
     const containsChunkRel = GRAPH_SCHEMA.relTables.find(

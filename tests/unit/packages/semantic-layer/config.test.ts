@@ -283,4 +283,24 @@ describe("loadConfig", () => {
       cleanup();
     }
   });
+
+  it("rejects an unknown chunking strategy with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  chunking:\n    strategy: paragraphs\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/chunking\.strategy must be/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown defaultMode with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultMode: semantic\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/defaultMode must be/);
+    } finally {
+      cleanup();
+    }
+  });
 });

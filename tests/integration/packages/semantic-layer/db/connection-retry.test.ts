@@ -1,6 +1,8 @@
-import type { Database } from "../../../../../packages/semantic-layer/node_modules/@ladybugdb/core";
+import { existsSync, writeFileSync } from "node:fs";
+import type { Database } from "@ladybugdb/core";
 import { describe, expect, it, vi } from "vitest";
 import { openDatabaseWithRetry } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { createTempDir } from "../../../../helpers.js";
 
 // Drives the retry policy through the `open` seam: no native module, no filesystem, and a 1ms
 // delay so the suite stays fast.
@@ -38,5 +40,26 @@ describe("openDatabaseWithRetry", () => {
       /wal still locked/,
     );
     expect(open).toHaveBeenCalledTimes(3);
+  });
+
+  it("removes an orphaned WAL file whose database is gone, then opens fresh", async () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      // Crash debris: a WAL file with no main database file behind it.
+      const dbPath = `${dir}/vault.lbug`;
+      writeFileSync(`${dbPath}.wal`, "stale wal bytes");
+      const open = vi
+        .fn<(dbPath: string) => Database>()
+        .mockImplementationOnce(() => {
+          throw new Error(`Error renaming file ${dbPath}.wal to ${dbPath}.wal.checkpoint`);
+        })
+        .mockReturnValueOnce({} as Database);
+
+      await openDatabaseWithRetry(dbPath, 3, 1, open);
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(existsSync(`${dbPath}.wal`)).toBe(false);
+    } finally {
+      cleanup();
+    }
   });
 });

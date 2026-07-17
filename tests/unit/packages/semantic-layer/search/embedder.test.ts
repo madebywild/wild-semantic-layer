@@ -167,8 +167,8 @@ describe("createEmbedder (fastembed)", () => {
 
       const [vector] = await embedder.embedDocuments(["hello world"]);
       expect(vector).toHaveLength(384);
-      // fastembed itself returns Float32Array; Orama's vector validation rejects that even
-      // though `.length` matches, so this must come back as a plain array.
+      // fastembed itself returns Float32Array; LadybugDB expects plain arrays, so the embedder
+      // must convert every vector before it is stored or queried.
       expect(Array.isArray(vector)).toBe(true);
 
       const queryVector = await embedder.embedQuery("hello");

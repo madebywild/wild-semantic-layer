@@ -57,3 +57,8 @@ export function validateVaultNotes<T extends { id: string; fm: NoteFrontmatter }
   }
   return { validNotes, errors };
 }
+
+/** Formats a list of validation errors as the standard `semantic-layer index` failure message. */
+export function formatIndexErrors(errors: string[]): string {
+  return `semantic-layer index failed:\n${errors.map((error) => `  - ${error}`).join("\n")}`;
+}

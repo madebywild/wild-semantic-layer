@@ -1,14 +1,4 @@
 import { loadConfig, type LoadConfigOptions } from "../config.js";
-import {
-  ancestors,
-  backlinks,
-  codeImpact,
-  cycles,
-  descendants,
-  forwardLinks,
-  orphans,
-  relatedNotes,
-} from "../db/queries/graph.js";
 import type {
   AncestorResult,
   BacklinkResult,
@@ -41,46 +31,49 @@ export type GraphCommandOptions = LoadConfigOptions & {
 /**
  * Dispatches a `semantic-layer graph <subcommand>` invocation to the matching
  * graph query. Returns structured hits; the CLI owns rendering (list or --json).
+ * The db layer (and LadybugDB's native module with it) is imported lazily so
+ * library consumers pulling in unrelated helpers never load native code.
  */
 export async function runGraph(options: GraphCommandOptions): Promise<GraphCommandResult> {
   const { subcommand, noteId, file, symbol, limit, depth, ...loadOptions } = options;
   const config = loadConfig(loadOptions);
+  const queries = await import("../db/queries/graph.js");
 
   switch (subcommand) {
     case "backlinks":
       return {
         subcommand,
-        hits: await backlinks(config, requireNoteId(noteId, subcommand), { limit }),
+        hits: await queries.backlinks(config, requireNoteId(noteId, subcommand), { limit }),
       };
     case "links":
       return {
         subcommand,
-        hits: await forwardLinks(config, requireNoteId(noteId, subcommand), { limit }),
+        hits: await queries.forwardLinks(config, requireNoteId(noteId, subcommand), { limit }),
       };
     case "descendants":
       return {
         subcommand,
-        hits: await descendants(config, requireNoteId(noteId, subcommand), { depth }),
+        hits: await queries.descendants(config, requireNoteId(noteId, subcommand), { depth }),
       };
     case "ancestors":
       return {
         subcommand,
-        hits: await ancestors(config, requireNoteId(noteId, subcommand), { depth }),
+        hits: await queries.ancestors(config, requireNoteId(noteId, subcommand), { depth }),
       };
     case "orphans":
-      return { subcommand, hits: await orphans(config) };
+      return { subcommand, hits: await queries.orphans(config) };
     case "related":
       return {
         subcommand,
-        hits: await relatedNotes(config, requireNoteId(noteId, subcommand), { limit }),
+        hits: await queries.relatedNotes(config, requireNoteId(noteId, subcommand), { limit }),
       };
     case "impact":
       if (!file && !symbol) {
         throw new Error("graph impact requires --file and/or --symbol");
       }
-      return { subcommand, hits: await codeImpact(config, { file, symbol }) };
+      return { subcommand, hits: await queries.codeImpact(config, { file, symbol }) };
     case "cycles":
-      return { subcommand, hits: await cycles(config, { limit }) };
+      return { subcommand, hits: await queries.cycles(config, { limit }) };
     default:
       throw new Error(
         `Unknown graph subcommand: ${subcommand}. Use backlinks, links, descendants, ancestors, orphans, related, impact, or cycles.`,

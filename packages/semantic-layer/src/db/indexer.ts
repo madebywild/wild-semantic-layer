@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 
 import type { AudienceEdge } from "../extract/audience.js";
 import { extractAudienceEdges } from "../extract/audience.js";
-import type { Chunk, ChunkingOptions } from "../extract/chunking.js";
+import type { Chunk } from "../extract/chunking.js";
 import { chunkNote } from "../extract/chunking.js";
 import type { CodeRefEdge } from "../extract/code-refs.js";
 import { extractCodeRefEdges } from "../extract/code-refs.js";
@@ -15,11 +15,11 @@ import type { TagEdge } from "../extract/tags.js";
 import { extractTagEdges } from "../extract/tags.js";
 import type { WikilinkEdge } from "../extract/wikilinks.js";
 import { extractWikilinks } from "../extract/wikilinks.js";
-import { validateVaultNotes } from "../frontmatter.js";
+import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import { createEmbedder, type Embedder, FastEmbedUnavailableError } from "../search/embedder.js";
 import { getHeadSha } from "../search/git-diff.js";
 import type { BuildIndexResult, Note, ResolvedConfig } from "../types.js";
-import { readVault } from "../vault.js";
+import { readVault, type Vault } from "../vault.js";
 import { dbFileForConfig, withConnectionForConfig } from "./connection.js";
 import {
   countChunks,
@@ -70,8 +70,12 @@ export async function buildIndex(
   options: { full?: boolean } = {},
   deps: IndexerDeps = {},
 ): Promise<BuildIndexResult> {
+  // Snapshot BEFORE opening: openDatabase creates the file on open, so an existence check inside
+  // the connection would always be true and a missing database would silently take the
+  // incremental path (producing an empty index that never self-heals).
+  const dbExisted = existsSync(dbFileForConfig(config));
   return withConnectionForConfig(config, async (conn) => {
-    return buildIndexWithConnection(conn, config, options, deps);
+    return buildIndexWithConnection(conn, config, { ...options, dbExisted }, deps);
   });
 }
 
@@ -79,11 +83,14 @@ export async function buildIndex(
  * Internal entry point that runs the build logic on an already-open connection. Exposed for
  * tests that need to perform multiple builds on the same database without paying LadybugDB
  * 0.18.2's flaky close/open cost between calls.
+ *
+ * `options.dbExisted` must be the pre-open existence of the database file when the caller opened
+ * the connection itself; it defaults to true (safe for tests building on a fresh database).
  */
 export async function buildIndexWithConnection(
   conn: Connection,
   config: ResolvedConfig,
-  options: { full?: boolean } = {},
+  options: { full?: boolean; dbExisted?: boolean } = {},
   deps: IndexerDeps = {},
 ): Promise<BuildIndexResult> {
   const ownEmbedder = deps.embedder === undefined;
@@ -97,7 +104,10 @@ export async function buildIndexWithConnection(
     const metaFile = indexMetaPath(config);
 
     const needsFull =
-      options.full === true || !meta || isIndexStale(config, meta, embedder) || !existsSync(dbFile);
+      options.full === true ||
+      !meta ||
+      isIndexStale(config, meta, embedder) ||
+      options.dbExisted === false;
 
     if (needsFull) {
       return await runFullRebuild(conn, config, embedder, ftsOnly, dbFile, metaFile);
@@ -148,19 +158,7 @@ async function runFullRebuild(
   dbFile: string,
   metaFile: string,
 ): Promise<BuildIndexResult> {
-  const vault = readVault(config.vaultDir);
-  const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
-  if (frontmatterErrors.length > 0) {
-    throw new Error(formatErrors(frontmatterErrors));
-  }
-
-  const { edges: codeRefEdges, errors: codeRefErrors } = await extractCodeRefEdges(
-    validNotes,
-    config.repoRoot,
-  );
-  if (codeRefErrors.length > 0) {
-    throw new Error(formatErrors(codeRefErrors));
-  }
+  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
 
   await dropSchema(conn);
   await createSchema(conn, embedder?.dimensions);
@@ -168,7 +166,9 @@ async function runFullRebuild(
     await createVectorIndex(conn, embedder.dimensions);
   }
 
-  const { chunks } = chunkNotes(validNotes, config.search.chunking);
+  const chunks = [...validNotes.values()].flatMap((note) =>
+    chunkNote(note, config.search.chunking),
+  );
   const hierarchyEdges = extractHierarchyEdges(validNotes);
   const tagEdges = extractTagEdges(validNotes);
   const audienceEdges = extractAudienceEdges(validNotes);
@@ -231,19 +231,7 @@ async function runIncrementalRebuild(
   dbFile: string,
   metaFile: string,
 ): Promise<BuildIndexResult> {
-  const vault = readVault(config.vaultDir);
-  const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
-  if (frontmatterErrors.length > 0) {
-    throw new Error(formatErrors(frontmatterErrors));
-  }
-
-  const { edges: codeRefEdges, errors: codeRefErrors } = await extractCodeRefEdges(
-    validNotes,
-    config.repoRoot,
-  );
-  if (codeRefErrors.length > 0) {
-    throw new Error(formatErrors(codeRefErrors));
-  }
+  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
 
   // Change detection is pure content reconciliation: any note whose hash changed or is new, plus
   // any hashed note that no longer exists. Git is deliberately not involved — the vault may be
@@ -339,18 +327,28 @@ async function runIncrementalRebuild(
   };
 }
 
-function chunkNotes(
-  notes: Map<string, Note>,
-  options: ChunkingOptions,
-): { chunks: Chunk[]; chunksByNote: Map<string, Chunk[]> } {
-  const chunks: Chunk[] = [];
-  const chunksByNote = new Map<string, Chunk[]>();
-  for (const note of notes.values()) {
-    const noteChunks = chunkNote(note, options);
-    chunksByNote.set(note.id, noteChunks);
-    chunks.push(...noteChunks);
+/**
+ * The shared build prelude: read the vault, validate frontmatter, resolve code refs. Throws
+ * with the full error list when anything is invalid — a partial index is never written.
+ */
+async function readValidatedVault(config: ResolvedConfig): Promise<{
+  vault: Vault;
+  validNotes: Map<string, Note>;
+  codeRefEdges: CodeRefEdge[];
+}> {
+  const vault = readVault(config.vaultDir);
+  const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
+  if (frontmatterErrors.length > 0) {
+    throw new Error(formatIndexErrors(frontmatterErrors));
   }
-  return { chunks, chunksByNote };
+  const { edges: codeRefEdges, errors: codeRefErrors } = await extractCodeRefEdges(
+    validNotes,
+    config.repoRoot,
+  );
+  if (codeRefErrors.length > 0) {
+    throw new Error(formatIndexErrors(codeRefErrors));
+  }
+  return { vault, validNotes, codeRefEdges };
 }
 
 function buildNoteSubgraphEdges(
@@ -368,8 +366,4 @@ function buildNoteSubgraphEdges(
   const audience = audienceEdges.filter((e) => e.noteId === note.id);
   const codeRefs = codeRefEdges.filter((e) => e.noteId === note.id);
   return { hierarchy, wikilinks, tags, audience, codeRefs };
-}
-
-function formatErrors(errors: string[]): string {
-  return `semantic-layer index failed:\n${errors.map((error) => `  - ${error}`).join("\n")}`;
 }

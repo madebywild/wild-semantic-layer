@@ -55,14 +55,14 @@ describe("querySearch embedder lifecycle", () => {
     const tv = lifecycleVault();
     try {
       const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      closeSpy.mockClear();
+      embedQuerySpy.mockClear();
+
       // Build with the fake injected; the meta records its identity so the mocked
       // createEmbedder resolves to the same identity at query time. The build itself must NOT
       // close a deps-injected embedder...
       await buildIndex(config, {}, { embedder: fakeEmbedder });
       expect(closeSpy).not.toHaveBeenCalled();
-
-      closeSpy.mockClear();
-      embedQuerySpy.mockClear();
 
       // ...but a query with no deps.embedder must create AND close the embedder itself.
       const result = await querySearch(config, { query: "lifecycle", mode: "vector" });
@@ -82,6 +82,23 @@ describe("querySearch embedder lifecycle", () => {
 
       const result = await querySearch(config, { query: "lifecycle", mode: "hybrid" });
       expect(result.rebuilt).toBe(true);
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      tv.cleanup();
+    }
+  });
+});
+
+describe("buildIndex embedder lifecycle", () => {
+  it("closes an embedder it created itself", async () => {
+    const tv = lifecycleVault();
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      closeSpy.mockClear();
+
+      // No deps.embedder: the build creates the embedder via the (mocked) createEmbedder and
+      // must close it — otherwise the native ONNX session leaks.
+      await buildIndex(config, {}, {});
       expect(closeSpy).toHaveBeenCalledTimes(1);
     } finally {
       tv.cleanup();

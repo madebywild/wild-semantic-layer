@@ -388,9 +388,9 @@ LadybugDB's native module is unavailable; `search` and `graph` are unusable
 there).
 
 `--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
-`--status`, `--tag`, and `--audience` filter results by frontmatter and may
-each be repeated. `--json` prints machine-readable output instead of the
-human-readable list.
+`--status`, `--tag`, and `--audience` filter results by frontmatter; `--tag`
+and `--audience` may be repeated. `--json` prints machine-readable output
+instead of the human-readable list.
 
 ### Graph queries
 
@@ -401,14 +401,14 @@ semantic-layer graph backlinks <noteId>      # notes linking to <noteId>
 semantic-layer graph links <noteId>          # notes <noteId> links to
 semantic-layer graph descendants <noteId>    # child notes in the hierarchy
 semantic-layer graph ancestors <noteId>      # parent notes in the hierarchy
-semantic-layer graph orphans                 # notes with no parents or inbound links
+semantic-layer graph orphans                 # notes with no wikilinks (either direction) and no code refs
 semantic-layer graph related <noteId>        # notes with shared tags or common backlinks
-semantic-layer graph impact --file src/mod.ts [--symbol foo]
+semantic-layer graph impact [--file src/mod.ts] [--symbol foo]
 semantic-layer graph cycles
 ```
 
-Graph output defaults to one JSON object per line; pass `--json` for a single
-machine-readable envelope.
+Graph output prints one JSON object per line plus a summary line; pass
+`--json` for a single machine-readable envelope.
 
 ### Embedding providers
 

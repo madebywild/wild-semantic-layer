@@ -168,17 +168,41 @@ describe("querySearch — modes", () => {
     }
   });
 
-  it("hybrid mode combines fts and vector signals without error", async () => {
+  it("hybrid mode fuses the fts and vector candidate lists with RRF", async () => {
+    // Controlled embedder: VECTOR_MARKER chunks sit at the query vector; everything else is far
+    // away. alpha is found only by FTS, beta only by vector, gamma by both — and the both-sides
+    // chunk must outrank the single-side ones, or the fusion isn't doing reciprocal rank fusion.
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
+      "vault/alpha.md": noteMarkdown({
+        id: "alpha",
+        body: "## Section\n\nThe widgets are great.\n",
+      }),
+      "vault/beta.md": noteMarkdown({ id: "beta", body: "## Section\n\nVECTOR_MARKER here.\n" }),
+      "vault/gamma.md": noteMarkdown({
+        id: "gamma",
+        body: "## Section\n\nVECTOR_MARKER widgets.\n",
+      }),
     });
     try {
-      const embedder = createFakeEmbedder();
+      const embedder = {
+        id: "fake:hybrid",
+        dimensions: 2,
+        embedDocuments: async (texts: string[]) =>
+          texts.map((text) => (text.includes("VECTOR_MARKER") ? [1, 0] : [0, -1])),
+        embedQuery: async () => [1, 0],
+      };
       await buildIndex(config, {}, { embedder });
 
       const result = await querySearch(config, { query: "widgets", mode: "hybrid" }, { embedder });
-      expect(result.mode).toBe("hybrid");
-      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+      const noteIds = result.hits.map((hit) => hit.noteId);
+      expect(noteIds).toContain("alpha");
+      expect(noteIds).toContain("beta");
+      expect(noteIds).toContain("gamma");
+      expect(noteIds[0]).toBe("gamma");
+      // The both-sides chunk's fused score must strictly exceed either single-side score.
+      const scores = new Map(result.hits.map((hit) => [hit.noteId, hit.score]));
+      expect(scores.get("gamma") ?? 0).toBeGreaterThan(scores.get("alpha") ?? 0);
+      expect(scores.get("gamma") ?? 0).toBeGreaterThan(scores.get("beta") ?? 0);
     } finally {
       await cleanup(tv);
     }

@@ -11,6 +11,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.15
         version: 2.4.15
+      '@ladybugdb/core':
+        specifier: 0.18.2
+        version: 0.18.2
       '@madebywild/agent-harness-framework':
         specifier: ^1.10.1
         version: 1.10.1
