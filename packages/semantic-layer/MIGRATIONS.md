@@ -38,6 +38,18 @@ configs themselves keep working.
 - New exports: `runSearch(options)` (returns `{ mode, hits, stale, rebuilt }`)
   and `runGraph(options)`, plus `BuildIndexResult` and the `graph` result
   types.
+- Database lifecycle: the LadybugDB handle is pooled per process and stays
+  open (WAL-drained after every command) instead of being closed after each
+  call. LadybugDB 0.18.2 cannot safely close-then-reopen the same database
+  path within one process — the close leaves native background state that can
+  corrupt the next open's FTS index build — so repeated `runIndex`/`runSearch`
+  calls in one process now share one handle. Everything is closed in a
+  process-exit hook; long-lived embedders that need to release the database
+  earlier (e.g. before deleting the vault directory) can await the new async
+  `closePooledDatabases()` export — it waits for queued work before closing —
+  but must not reopen the same path from the same process afterwards. Database work is serialized per process (LadybugDB
+  allows one write transaction system-wide), so concurrent `runIndex` /
+  `runSearch` / `runGraph` calls queue instead of failing.
 - Platform requirement: `@ladybugdb/core` is a native module that needs
   glibc + OpenSSL 3. `check`, `init`, and `refine stage|list|reject` load no
   native code and work anywhere; `index` (unless `search.enabled: false`),

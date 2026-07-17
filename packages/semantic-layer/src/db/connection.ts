@@ -1,8 +1,10 @@
 import { Connection, Database } from "@ladybugdb/core";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ResolvedConfig } from "../types.js";
+import { getPool, installExitHook, type PooledDatabase } from "./pool.js";
 import { createSchema } from "./schema.js";
 
 const DEFAULT_MAX_DB_SIZE_BYTES = 1024 * 1024 * 1024; // 1 GiB
@@ -53,34 +55,112 @@ export async function openDatabaseWithRetry(
   throw lastError;
 }
 
+/**
+ * Process-wide single-slot database pool.
+ *
+ * LadybugDB 0.18.2's native close leaves background state behind: after a Database on path P is
+ * closed, a NEW Database opened on the same P in the same process can fail its checkpoint-forcing
+ * statements (CREATE_FTS_INDEX and friends rename `.wal` to `.wal.checkpoint` internally) with
+ * "IO exception: Error renaming file ... No such file or directory". Worse, a CREATE_FTS_INDEX
+ * that fails this way is not rolled back cleanly — it leaves orphaned internal FTS tables
+ * (`0_..._appears_info`) that make any retry fail with "already exists". Empirically (see the
+ * pinning test in tests/integration/db/connection.test.ts):
+ *   - close-then-reopen the SAME path in-process: races in ~2-4 of 6 heavy rebuild cycles;
+ *   - one shared Database for repeated builds: 0 failures;
+ *   - closing a Database on a DIFFERENT path before opening a new one: 0 failures.
+ * The pool therefore keeps the most recently used Database open for the process lifetime and
+ * reuses it for every withConnection call on that path. Switching paths closes the previous
+ * handle (cross-path close is safe). The one unsafe case — the pooled file was deleted on disk,
+ * so the path must be re-opened — retires the stale handle to a graveyard WITHOUT closing it;
+ * everything is closed synchronously in a process exit hook.
+ */
+async function acquireDatabaseLocked(key: string): Promise<Database> {
+  const pool = getPool();
+  const current = pool.current;
+  if (current && current.path === key) {
+    if (existsSync(key)) return current.db;
+    // The database file was deleted out from under the pooled handle (e.g. a forced reset).
+    // Closing the stale handle would poison the fresh open on this same path, so retire it
+    // unclosed; the exit hook cleans it up.
+    pool.graveyard.push(current.db);
+    pool.current = undefined;
+  } else if (current) {
+    // Path switch: closing a database on a different path is safe for the new one, and the
+    // work lock guarantees nothing is using the old handle anymore.
+    try {
+      current.db.closeSync();
+    } catch {
+      // Best-effort close of the evicted database.
+    }
+    pool.current = undefined;
+  }
+
+  const db = await openDatabaseWithRetry(key);
+  const entry: PooledDatabase = { path: key, db };
+  pool.current = entry;
+  installExitHook();
+  return db;
+}
+
+// Turns the silent deadlock of a nested withConnection call (awaiting the lock its own caller
+// holds) into an immediate, explanatory error. Module-scoped, so it only guards nesting within
+// one copy of this module — the common case; cross-copy nesting still deadlocks.
+const reentrancyGuard = new AsyncLocalStorage<boolean>();
+
+/**
+ * Runs `fn` against the pooled database for `dbPath`. The entire unit of work is serialized
+ * through the pool's work lock — see the lock's doc in pool.ts (check-then-act acquire, and
+ * LadybugDB's one-write-transaction-per-system rule). Consequently `fn` must never call
+ * withConnection itself; nested calls throw. Reuse the outer connection instead (the pattern
+ * `querySearch(..., { connection })` and `buildIndexWithConnection` exist for).
+ */
 export async function withConnection<T>(
   dbPath: string,
   fn: (conn: Connection) => Promise<T>,
 ): Promise<T> {
-  const db = await openDatabaseWithRetry(dbPath);
+  if (reentrancyGuard.getStore()) {
+    throw new Error(
+      "withConnection must not be nested: units of work are serialized process-wide, so a " +
+        "nested call would deadlock. Pass the outer connection down instead.",
+    );
+  }
+  const pool = getPool();
+  const run = pool.workLock.then(() =>
+    reentrancyGuard.run(true, () => withConnectionLocked(resolve(dbPath), fn)),
+  );
+  // The lock must survive a failed unit of work; park the rejection so the chain stays usable
+  // (the caller still receives it through `run`).
+  pool.workLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function withConnectionLocked<T>(
+  key: string,
+  fn: (conn: Connection) => Promise<T>,
+): Promise<T> {
+  const db = await acquireDatabaseLocked(key);
   const conn = new Connection(db);
   await conn.init();
   try {
     await createSchema(conn);
     return await fn(conn);
   } finally {
-    // Synchronous close is required for clean process shutdown: LadybugDB 0.18.2's async close
-    // resolves before native background threads have fully released their mutexes, which causes
-    // an abort-on-exit in long-running processes like the CLI.
+    // Drain the WAL at the end of every unit of work: the on-disk file stays complete for
+    // out-of-process readers while the pooled handle stays open, and the exit-time close has
+    // nothing left to hand to a background thread.
+    try {
+      await conn.query("CHECKPOINT");
+    } catch {
+      // Best-effort drain (e.g. the callback broke the connection).
+    }
     try {
       conn.closeSync();
     } catch {
       // Best-effort connection close.
     }
-    try {
-      db.closeSync();
-    } catch {
-      // Best-effort database close.
-    }
-    // LadybugDB 0.18.2's native close can return before the WAL checkpoint thread has finished.
-    // Tests that immediately reopen the same database in the same process are protected by
-    // reusing a single connection; this delay is a safety margin for any other rapid cycle.
-    await delay(100);
   }
 }
 

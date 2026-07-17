@@ -1,11 +1,11 @@
 ---
 id: meta.testing
 title: Testing contract
-desc: Blackbox e2e coverage expectations for the semantic-layer package.
+desc: Test-suite layers and isolation guarantees for the semantic-layer package.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-07-15
+last_verified: 2026-07-17
 ttl_days: 180
 tags: [meta, testing]
 layer: demo
@@ -13,18 +13,25 @@ layer: demo
 
 # Testing contract
 
-The package blackbox e2e suite packs `@madebywild/semantic-layer` once, runs one
-`node:24-alpine` Testcontainers runtime, and creates isolated consumer
-workspaces for each scenario.
+Four vitest projects cover the package, from fastest to most isolated:
 
-The focused scenarios cover a monorepo TypeScript service with custom code-ref
-sidecar output, a simple JavaScript consumer refinement lifecycle, and drift or
-migration failures that must not overwrite previously generated indexes.
+- `unit` and `integration` run on the host against the TypeScript source.
+- `integration-container` re-runs the whole integration project inside an
+  isolated `node:24` Testcontainers container (Debian glibc — the platform
+  LadybugDB actually ships to). It copies the repo in, installs with a frozen
+  lockfile, and asserts the suite passes; the container is removed after the
+  run (Testcontainers' Ryuk reaper covers crashes), so LadybugDB temp-file
+  debris never accumulates on the host.
+- `e2e` packs `@madebywild/semantic-layer` once, runs one `node:24`
+  Testcontainers runtime, and exercises the published CLI in isolated
+  consumer workspaces: a monorepo TypeScript service with custom code-ref
+  sidecar output, a simple JavaScript consumer refinement lifecycle, and
+  drift or migration failures that must not overwrite generated indexes.
+  The container has no working fastembed, which doubles as coverage for the
+  FTS-only degradation described in [[meta.search]].
 
-A second, separate blackbox file covers [[meta.search]] on Alpine/musl: it
-packs its own tarball and runs its own `node:24-alpine` container so it never
-touches the suite above. It proves `search-index` degrades to an FTS-only
-index (no crash) when the local embedder's native ONNX build is unavailable,
-that FTS search and incremental rebuilds keep working in that state, and that
-the `gemini` provider's code path runs cleanly on musl up to the point a real
-API key would be required.
+LadybugDB 0.18.2 cannot safely close-then-reopen the same database path
+within one process (the close leaves native background state that corrupts
+the next FTS index build), so the library pools one open database handle per
+process and drains the WAL after every unit of work. The connection tests pin
+both behaviors; do not "fix" tests by adding close/reopen cycles.

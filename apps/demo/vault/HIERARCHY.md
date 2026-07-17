@@ -10,4 +10,4 @@ Agents: read this file first, then load notes by id.
 - **meta** - Metadata. Meta notes for contributors and agents.
   - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault.
   - **meta.search** - Search index. Local full-text + vector search over this vault.
-  - **meta.testing** - Testing contract. Blackbox e2e coverage expectations for the semantic-layer package.
+  - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package.

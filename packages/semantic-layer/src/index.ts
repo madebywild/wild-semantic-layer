@@ -1,5 +1,7 @@
 export { runCheck } from "./check.js";
 export { loadConfig } from "./config.js";
+// Native-free: pool.ts only type-imports @ladybugdb/core, so this export stays musl-safe.
+export { closePooledDatabases } from "./db/pool.js";
 export { runGraph } from "./commands/graph.js";
 export { indexResolved, runIndex } from "./commands/index.js";
 export { runSearch } from "./commands/search.js";
