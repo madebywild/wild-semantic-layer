@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { runCheck } from "./check.js";
-import { runIndex } from "./index-vault.js";
 import { runInit } from "./init.js";
 import {
   runRefinementList,
@@ -10,40 +9,55 @@ import {
   runRefinementReject,
   runRefinementStage,
 } from "./refinements.js";
-import { runSearchBuild } from "./search/build.js";
-import { runSearchQuery, type SearchQueryResult } from "./search/query.js";
 import type { RefinementStatus, SearchMode } from "./types.js";
+
+// DB-dependent commands are loaded lazily so that `check`, `init`, `refine`,
+// `--help`, and `--version` work even when LadybugDB's native module is
+// unavailable (e.g. musl/Alpine Linux). The commands that need the DB will
+// surface their own load error when invoked.
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
   allowPositionals: true,
   options: {
-    audience: { type: "string", multiple: true },
+    // global / shared
     config: { type: "string" },
-    evidence: { type: "string", multiple: true },
-    full: { type: "boolean" },
     help: { type: "boolean", short: "h" },
+    root: { type: "string" },
+    vault: { type: "string" },
+    version: { type: "boolean" },
     json: { type: "boolean" },
-    limit: { type: "string" },
+
+    // index / search-index
+    full: { type: "boolean" },
+
+    // search
     mode: { type: "string" },
+    limit: { type: "string" },
+    status: { type: "string" },
+    tag: { type: "string", multiple: true },
+    audience: { type: "string", multiple: true },
+    rebuild: { type: "boolean" },
+
+    // graph
+    depth: { type: "string" },
+    file: { type: "string" },
+    symbol: { type: "string" },
+
+    // refine
+    evidence: { type: "string", multiple: true },
     note: { type: "string", multiple: true },
     owner: { type: "string" },
     reason: { type: "string" },
-    rebuild: { type: "boolean" },
     related: { type: "string", multiple: true },
-    root: { type: "string" },
     source: { type: "string" },
-    status: { type: "string" },
     stdin: { type: "boolean" },
     summary: { type: "string" },
-    tag: { type: "string", multiple: true },
     title: { type: "string" },
-    vault: { type: "string" },
-    version: { type: "boolean" },
   },
 });
 
-const [command, helpCommand, targetId] = positionals;
+const [command, subcommandOrQuery, positionalId] = positionals;
 const activeCommand = command ?? "check";
 
 try {
@@ -53,101 +67,122 @@ try {
   }
 
   if (values.help || activeCommand === "help") {
-    console.log(help(activeCommand === "help" ? helpCommand : command));
+    console.log(help(activeCommand === "help" ? subcommandOrQuery : command));
     process.exit(0);
   }
+
+  const loadOptions = {
+    configPath: values.config,
+    root: values.root,
+    vault: values.vault,
+  };
 
   if (activeCommand === "check") {
-    const result = runCheck({
-      configPath: values.config,
-      root: values.root,
-      vault: values.vault,
-    });
-    if (result.errors.length === 0) {
+    const result = runCheck(loadOptions);
+    if (values.json) {
+      console.log(JSON.stringify(result));
+    } else if (result.errors.length === 0) {
       console.log(`semantic-layer: ok (${result.noteCount} notes verified)`);
-      process.exit(0);
+    } else {
+      console.error(`semantic-layer: ${result.errors.length} problem(s)\n`);
+      for (const error of result.errors) console.error(`  - ${error}`);
     }
-    console.error(`semantic-layer: ${result.errors.length} problem(s)\n`);
-    for (const error of result.errors) console.error(`  - ${error}`);
-    process.exit(1);
-  }
-
-  if (activeCommand === "index") {
-    const result = runIndex({
-      configPath: values.config,
-      root: values.root,
-      vault: values.vault,
-    });
-    console.log(
-      `semantic-layer index: wrote ${result.outFile} and ${result.codeRefsFile} (${result.noteCount} notes)`,
-    );
-    process.exit(0);
-  }
-
-  if (activeCommand === "init") {
-    const result = runInit({ owner: values.owner, vault: values.vault });
-    console.log(`semantic-layer init: scaffolded ${result.vaultDir}`);
-    process.exit(0);
-  }
-
-  if (activeCommand === "refine") {
-    runRefine(helpCommand, targetId);
-    process.exit(0);
-  }
-
-  if (activeCommand === "search-index") {
-    // Deliberately no process.exit() below this point: once the fastembed provider has loaded
-    // its native ONNX session, forcing an abrupt exit crashes the process (a native mutex error
-    // during teardown) even though the command itself succeeded. Setting exitCode and letting
-    // the event loop drain naturally avoids that crash and still reports the right status.
-    const result = await runSearchBuild({
-      configPath: values.config,
-      root: values.root,
-      vault: values.vault,
+    process.exitCode = result.errors.length === 0 ? 0 : 1;
+  } else if (activeCommand === "index" || activeCommand === "search-index") {
+    const { runIndex } = await import("./commands/index.js");
+    const result = await runIndex({
+      ...loadOptions,
       full: values.full,
     });
-    const mode = result.ftsOnly ? `${result.mode} (fts-only)` : result.mode;
-    console.log(
-      `semantic-layer search-index: ${mode} rebuild — ${result.notesIndexed} changed, ` +
-        `${result.notesRemoved} removed, ${result.noteCount} notes, ${result.chunkCount} chunks ` +
-        `(${result.indexFile})`,
-    );
-    process.exitCode = 0;
-  } else if (activeCommand === "search") {
-    const query = positionals.slice(1).join(" ").trim();
-    if (!query) {
-      throw new Error(
-        'semantic-layer search requires a query, e.g. semantic-layer search "runtime"',
+    if (values.json) {
+      console.log(JSON.stringify(result));
+    } else if (!result.db) {
+      console.log(
+        `semantic-layer index: search disabled — wrote ${result.outFile}, ${result.codeRefsFile} ` +
+          `(${result.noteCount} notes)`,
+      );
+    } else {
+      const mode = result.db.ftsOnly ? `${result.db.mode} (fts-only)` : result.db.mode;
+      console.log(
+        `semantic-layer index: ${mode} rebuild — ${result.db.notesIndexed} indexed, ` +
+          `${result.db.notesRemoved} removed, ${result.db.noteCount} notes, ${result.db.chunkCount} chunks ` +
+          `(${result.db.dbFile}, ${result.outFile}, ${result.codeRefsFile})`,
       );
     }
-    const result = await runSearchQuery({
-      configPath: values.config,
-      root: values.root,
-      vault: values.vault,
+    process.exitCode = 0;
+  } else if (activeCommand === "search") {
+    const query = subcommandOrQuery;
+    if (!query) {
+      console.error("semantic-layer search: <query> is required");
+      process.exit(1);
+    }
+    const { runSearch } = await import("./commands/search.js");
+    const result = await runSearch({
+      ...loadOptions,
       query,
       mode: parseSearchMode(values.mode),
-      limit: parseLimit(values.limit),
+      limit: parseOptionalInt(values.limit, "--limit"),
       status: values.status,
-      tags: values.tag ?? [],
-      audience: values.audience ?? [],
+      tags: stringList(values.tag),
+      audience: stringList(values.audience),
       rebuild: values.rebuild,
     });
     if (values.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result));
     } else {
-      printSearchResults(result);
+      if (result.rebuilt) {
+        console.error("semantic-layer search: index rebuilt before query");
+      }
+      if (result.stale) {
+        console.error("semantic-layer search: index is stale; results may be incomplete");
+      }
+      for (const hit of result.hits) {
+        console.log(`${hit.score.toFixed(4)}\t${hit.noteId}\t${hit.title}\t${hit.headingPath}`);
+      }
+      console.log(`${result.hits.length} hit(s) for "${query}" (${result.mode})`);
     }
+    process.exitCode = 0;
+  } else if (activeCommand === "graph") {
+    const subcommand = subcommandOrQuery;
+    if (!subcommand) {
+      console.error("semantic-layer graph: <subcommand> is required");
+      process.exit(1);
+    }
+    const { runGraph } = await import("./commands/graph.js");
+    const result = await runGraph({
+      ...loadOptions,
+      subcommand,
+      noteId: positionalId,
+      file: values.file,
+      symbol: values.symbol,
+      limit: parseOptionalInt(values.limit, "--limit"),
+      depth: parseOptionalInt(values.depth, "--depth"),
+      json: values.json,
+    });
+    if (values.json) {
+      console.log(JSON.stringify(result));
+    } else {
+      for (const hit of result.hits) {
+        console.log(JSON.stringify(hit));
+      }
+      console.log(`${result.hits.length} result(s)`);
+    }
+    process.exitCode = 0;
+  } else if (activeCommand === "init") {
+    const result = runInit({ owner: values.owner, vault: values.vault });
+    console.log(`semantic-layer init: scaffolded ${result.vaultDir}`);
+    process.exitCode = 0;
+  } else if (activeCommand === "refine") {
+    await runRefine(subcommandOrQuery, positionalId);
     process.exitCode = 0;
   } else {
     console.error(
-      `Unknown command: ${activeCommand}. Use check, index, init, refine, search-index, search, or help.`,
+      `Unknown command: ${activeCommand}. Use check, index, search, graph, init, refine, or help.`,
     );
     process.exitCode = 1;
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  // Same reasoning as above: avoid process.exit() here too, since search/search-index can throw
-  // after fastembed's native session is already loaded.
   process.exitCode = 1;
 }
 
@@ -168,20 +203,71 @@ Options:
   --config <path>  Config file path
   --vault <path>   Vault directory override
   --root <path>    Repo root override for code_refs
+  --json           Output raw JSON result for agents
   -h, --help       Show help
 `;
   }
 
-  if (command === "index") {
-    return `Usage: semantic-layer index [options]
+  if (command === "index" || command === "search-index") {
+    return `Usage: semantic-layer ${command ?? "index"} [options]
 
-Regenerate the agent-facing hierarchy index and code refs sidecar.
+Regenerate the LadybugDB vault index and compatibility sidecars.
 
 Options:
   --config <path>  Config file path
   --vault <path>   Vault directory override
   --root <path>    Repo root override for code_refs
+  --full           Force a full rebuild instead of an incremental one
+  --json           Output raw JSON result for agents
   -h, --help       Show help
+`;
+  }
+
+  if (command === "search") {
+    return `Usage: semantic-layer search "<query>" [options]
+
+Search the vault's full-text + vector index.
+
+Options:
+  --mode <fts|vector|hybrid>  Search mode (default: config defaultMode)
+  --limit <n>                 Maximum number of hits (default: config defaultLimit)
+  --status <v>                Filter by note status
+  --tag <v>                   Filter by tag; may be repeated
+  --audience <v>              Filter by audience; may be repeated
+  --rebuild                   Refresh the index before searching
+  --json                      Output raw JSON result for agents
+  --config <path>             Config file path
+  --vault <path>              Vault directory override
+  --root <path>               Repo root override for code_refs
+  -h, --help                  Show help
+`;
+  }
+
+  if (command === "graph") {
+    return `Usage: semantic-layer graph <subcommand> [options]
+
+Explore the vault's graph relationships.
+
+Subcommands:
+  backlinks <noteId>    Notes that link to <noteId>
+  links <noteId>        Notes that <noteId> links to
+  descendants <noteId>  Child notes in the hierarchy
+  ancestors <noteId>    Parent notes in the hierarchy
+  orphans               Notes with no hierarchy parents or inbound links
+  related <noteId>      Notes with shared tags or backlinks
+  impact --file <path> [--symbol <name>]  Notes declaring code refs matching a file/symbol
+  cycles                Detect wikilink cycles
+
+Options:
+  --limit <n>     Limit backlinks/links/related/cycles (default: unlimited)
+  --depth <n>     Descendant/ancestor traversal depth (default: unlimited)
+  --file <path>   File path for impact subcommand
+  --symbol <name> Symbol name for impact subcommand
+  --json          Output raw JSON result for agents
+  --config <path> Config file path
+  --vault <path>  Vault directory override
+  --root <path>   Repo root override for code_refs
+  -h, --help      Show help
 `;
   }
 
@@ -231,49 +317,16 @@ Options:
 `;
   }
 
-  if (command === "search-index") {
-    return `Usage: semantic-layer search-index [options]
-
-Build or incrementally refresh the local vault search index (full-text + vector).
-
-Options:
-  --config <path>  Config file path
-  --vault <path>   Vault directory override
-  --root <path>    Repo root override for code_refs
-  --full           Force a full rebuild instead of an incremental one
-  -h, --help       Show help
-`;
-  }
-
-  if (command === "search") {
-    return `Usage: semantic-layer search "<query>" [options]
-
-Search the local vault search index. Builds the index first if it doesn't exist yet.
-
-Options:
-  --config <path>     Config file path
-  --vault <path>      Vault directory override
-  --root <path>       Repo root override for code_refs
-  --mode <value>      fts, vector, or hybrid (default from config)
-  --limit <n>         Maximum number of results (default from config)
-  --status <value>    Filter to notes with this status
-  --tag <value>       Filter to notes with this tag; may be repeated
-  --audience <value>  Filter to notes with this audience; may be repeated
-  --json              Print results as JSON
-  --rebuild           Refresh the index before searching
-  -h, --help          Show help
-`;
-  }
-
   return `Usage: semantic-layer <command> [options]
 
 Commands:
   check         Validate a vault (default)
-  index         Regenerate vault/HIERARCHY.md and code refs sidecar
+  index         Regenerate the LadybugDB vault index
+  search-index  Alias for index
+  search        Search the vault index
+  graph         Explore vault graph relationships
   init          Scaffold a new vault
   refine        Manage staged evolutionary refinements
-  search-index  Build or refresh the local vault search index
-  search        Search the local vault search index
   help          Show help
 
 Global options:
@@ -285,7 +338,7 @@ Global options:
 `;
 }
 
-function runRefine(subcommand: string | undefined, id: string | undefined) {
+async function runRefine(subcommand: string | undefined, id: string | undefined) {
   const loadOptions = {
     configPath: values.config,
     root: values.root,
@@ -324,7 +377,7 @@ function runRefine(subcommand: string | undefined, id: string | undefined) {
   }
 
   if (subcommand === "promote") {
-    const result = runRefinementPromote({
+    const result = await runRefinementPromote({
       ...loadOptions,
       id: requiredString(id, "refinement id"),
       notes: stringList(values.note),
@@ -371,27 +424,11 @@ function parseSearchMode(value: string | undefined): SearchMode | undefined {
   throw new Error("--mode must be fts, vector, or hybrid");
 }
 
-function parseLimit(value: string | undefined): number | undefined {
-  if (!value) return undefined;
+function parseOptionalInt(value: string | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1)
-    throw new Error("--limit must be a positive integer");
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${label} must be a positive integer`);
+  }
   return parsed;
-}
-
-function printSearchResults(result: SearchQueryResult) {
-  if (result.hits.length === 0) {
-    console.log("semantic-layer search: no results");
-    return;
-  }
-  for (const hit of result.hits) {
-    const heading = hit.headingPath ? ` > ${hit.headingPath}` : "";
-    console.log(`- [${hit.score.toFixed(3)}] ${hit.id} (${hit.status}) ${hit.title}${heading}`);
-    console.log(`  ${truncate(hit.text, 160)}`);
-  }
-}
-
-function truncate(text: string, maxChars: number): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars - 1)}…` : collapsed;
 }

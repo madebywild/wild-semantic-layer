@@ -25,9 +25,10 @@ It also provides the workflow pieces agents need around the vault:
 - `semantic-layer refine` stages, promotes, and rejects untrusted
   self-improvement signals without merging raw chat or transient context into
   trusted documentation.
-- `semantic-layer search-index` and `semantic-layer search` build and query a
-  local full-text + vector search index over the vault, so agents can find
-  relevant notes without reading every file.
+- `semantic-layer search` queries a local full-text + vector search index over
+  the vault, so agents can find relevant notes without reading every file.
+- `semantic-layer graph` explores the vault's knowledge graph: backlinks,
+  descendants, orphans, code-impact, and cycle detection.
 
 Use it when a repo needs documentation that is navigable, testable, and safe to
 hand to autonomous tools as current project context.
@@ -94,8 +95,8 @@ semantic-layer index
 semantic-layer init
 semantic-layer refine stage --source user-message --title "Runtime changed" --stdin
 semantic-layer refine list --status staged
-semantic-layer search-index
 semantic-layer search "runtime contract"
+semantic-layer graph backlinks runtime
 semantic-layer --help
 ```
 
@@ -147,9 +148,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
-| `search.enabled` | `true` | Whether `search-index`/`search` are usable for this vault. |
-| `search.indexFile` | `.semantic-layer/search-index.msp` | Generated search index file, relative to the vault directory. |
-| `search.manifestFile` | `.semantic-layer/search-index.manifest.json` | Generated search index manifest, relative to the vault directory. |
+| `search.enabled` | `true` | Whether `search`/`graph` and the LadybugDB index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars. |
 | `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
 | `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
 | `search.embedding.provider` | `fastembed` | `fastembed` (local) or `gemini` (hosted). See [Search](#search). |
@@ -313,9 +312,10 @@ schemas:
 
 ## Generated Index
 
-`semantic-layer index` writes `vault/HIERARCHY.md` and
-`vault/.semantic-layer/code-refs.json` by default. Agents should read
-`HIERARCHY.md` first, then load only the notes relevant to the task.
+`semantic-layer index` writes `vault/HIERARCHY.md`,
+`vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index at
+`vault/.semantic-layer/vault.lbug` (plus `vault.lbug.meta.json`). Agents should
+read `HIERARCHY.md` first, then load only the notes relevant to the task.
 
 The code refs sidecar is generated JSON:
 
@@ -353,39 +353,62 @@ before writing either generated file. If a symbol is missing or ambiguous, it
 leaves the previous generated files in place and reports the same code ref
 failure that `check` would report.
 
-## Search
+## Search and Graph
 
-`semantic-layer search-index` builds a local, file-based search index — full
-text and vector, via [Orama](https://github.com/oramasearch/orama) — over the
-vault's notes, chunked per heading section. `semantic-layer search "<query>"`
-queries it.
+`semantic-layer index` builds a local LadybugDB graph database from the vault.
+The database stores notes, headings, chunks, wikilinks, hierarchy edges,
+tags/audience, and resolved code references. That same store powers full-text
+and vector search over the vault's notes, chunked per heading section.
 
 ```bash
-semantic-layer search-index
-semantic-layer search-index --full
+semantic-layer index
+semantic-layer index --full
 
 semantic-layer search "runtime contract"
 semantic-layer search "runtime contract" --mode vector --limit 5
 semantic-layer search "runtime contract" --status active --tag runtime --json
 ```
 
-The index (`vault/.semantic-layer/search-index.msp`) and its manifest
-(`vault/.semantic-layer/search-index.manifest.json`) are derived, gitignored
-files, cheap to regenerate. `search-index` rebuilds incrementally by default —
-using `git` to find notes that may have changed since the last build, then a
-content hash to skip any of those whose text didn't actually change — and falls
-back to a full rebuild if there's no manifest yet, the vault isn't in a git
-repo, history was rewritten since the last build, or the chunking/embedding
-config changed. Pass `--full` to force one. `search` builds the index
-automatically on first use and refreshes it with `--rebuild`; otherwise a stale
-index (vault changed since the last build) just prints a warning to stderr and
-still searches, so a plain `search` call never has unpredictable rebuild
-latency.
+The index (`vault/.semantic-layer/vault.lbug`) and its metadata sidecar
+(`vault/.semantic-layer/vault.lbug.meta.json`) are derived, gitignored files,
+cheap to regenerate. `index` rebuilds incrementally by default — comparing a
+content hash of every note against the previous build and rewriting only the
+notes that were added, changed, or deleted — and falls back to a full rebuild
+if there's no metadata yet or the chunking/embedding config changed. This
+works with or without git; the vault never has to be committed for the index
+to stay correct. Pass `--full` to force a full rebuild. `search` builds the
+index automatically on first use and refreshes it with `--rebuild`; otherwise
+a stale index (vault changed since the last build) just prints a warning to
+stderr and still searches, so a plain `search` call never has unpredictable
+rebuild latency.
+
+With `search.enabled: false`, `index` writes only `HIERARCHY.md` and
+`code-refs.json` and skips the database entirely (useful on platforms where
+LadybugDB's native module is unavailable; `search` and `graph` are unusable
+there).
 
 `--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
 `--status`, `--tag`, and `--audience` filter results by frontmatter and may
 each be repeated. `--json` prints machine-readable output instead of the
 human-readable list.
+
+### Graph queries
+
+`semantic-layer graph` exposes the vault's relationship graph for agents:
+
+```bash
+semantic-layer graph backlinks <noteId>      # notes linking to <noteId>
+semantic-layer graph links <noteId>          # notes <noteId> links to
+semantic-layer graph descendants <noteId>    # child notes in the hierarchy
+semantic-layer graph ancestors <noteId>      # parent notes in the hierarchy
+semantic-layer graph orphans                 # notes with no parents or inbound links
+semantic-layer graph related <noteId>        # notes with shared tags or common backlinks
+semantic-layer graph impact --file src/mod.ts [--symbol foo]
+semantic-layer graph cycles
+```
+
+Graph output defaults to one JSON object per line; pass `--json` for a single
+machine-readable envelope.
 
 ### Embedding providers
 
@@ -416,15 +439,17 @@ Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
 
 ### Alpine / musl
 
-`fastembed` is an optional dependency: its native ONNX runtime and tokenizer
-bindings have no musl build, so it can't load on `node:*-alpine` or similar. It
-never breaks `npm install` or any other command — only the local embedder is
-affected. When it's unavailable, `search-index` degrades to an FTS-only index
-instead of failing: it prints a warning, `search --mode fts` keeps working, and
-`--mode vector`/`--mode hybrid` fail with a message pointing at the fix rather
-than a native-loader stack trace. To get local vector search inside a musl
-container, use a glibc-based base image; otherwise switch
-`search.embedding.provider` to `gemini`.
+LadybugDB ships a native module that requires glibc + OpenSSL 3. On
+`node:*-alpine` or similar, only the non-database commands work: `check`,
+`init`, and `refine stage|list|reject` load no native code at all. `index`
+(with `search.enabled: true`), `search`, `graph`, and `refine promote` need a
+glibc-based image. `fastembed` is an optional dependency with the same musl
+limitation, but it degrades gracefully: on platforms where its native bindings
+fail to load, `index` builds an FTS-only index instead of failing — it prints
+a warning, `search --mode fts` keeps working, and `--mode vector`/`--mode
+hybrid` fail with a message pointing at the fix rather than a native-loader
+stack trace. To get local vector search inside a container, use a glibc-based
+base image; otherwise switch `search.embedding.provider` to `gemini`.
 
 ## Migrating to 0.3
 
@@ -444,11 +469,11 @@ See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
 ```ts
 import {
   runCheck,
+  runGraph,
   runIndex,
   runInit,
   runRefinementStage,
-  runSearchBuild,
-  runSearchQuery,
+  runSearch,
 } from "@madebywild/semantic-layer";
 
 const result = runCheck({ cwd: process.cwd() });
@@ -456,7 +481,7 @@ if (result.errors.length > 0) {
   throw new Error(result.errors.join("\n"));
 }
 
-const index = runIndex();
+const index = await runIndex();
 console.log(index.codeRefsFile);
 runInit({ vault: "vault", owner: "eng@example.com" });
 runRefinementStage({
@@ -466,11 +491,16 @@ runRefinementStage({
   relatedNotes: ["demo.runtime"],
 });
 
-await runSearchBuild({ cwd: process.cwd() });
-const { hits } = await runSearchQuery({
+const { hits } = await runSearch({
   cwd: process.cwd(),
   query: "runtime contract",
   mode: "hybrid",
+});
+
+const { hits: backlinkHits } = await runGraph({
+  cwd: process.cwd(),
+  subcommand: "backlinks",
+  noteId: "demo.runtime",
 });
 ```
 
@@ -484,7 +514,7 @@ Exports:
 - `runRefinementList`
 - `runRefinementPromote`
 - `runRefinementReject`
-- `runSearchBuild`
-- `runSearchQuery`
+- `runSearch`
+- `runGraph`
 - `FastEmbedUnavailableError`
-- TypeScript types for config, notes, schemas, search results, and check results
+- TypeScript types for config, notes, schemas, search/graph results, and check results

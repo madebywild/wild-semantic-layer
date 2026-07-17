@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@ladybugdb/core': true
   cpu-features: true
   esbuild: true
   onnxruntime-node: true

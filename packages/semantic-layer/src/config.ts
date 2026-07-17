@@ -15,8 +15,6 @@ const CONFIG_FILES = [
 ];
 
 export const DEFAULT_CODE_REFS_FILE = ".semantic-layer/code-refs.json";
-export const DEFAULT_SEARCH_INDEX_FILE = ".semantic-layer/search-index.msp";
-export const DEFAULT_SEARCH_MANIFEST_FILE = ".semantic-layer/search-index.manifest.json";
 export const DEFAULT_GEMINI_API_KEY_ENV = "SEMANTIC_LAYER_GEMINI_API_KEY";
 
 const DEFAULT_CONFIG: SemanticLayerConfig = {
@@ -30,8 +28,6 @@ const DEFAULT_CONFIG: SemanticLayerConfig = {
 
 export const DEFAULT_SEARCH_CONFIG: ResolvedSearchConfig = {
   enabled: true,
-  indexFile: DEFAULT_SEARCH_INDEX_FILE,
-  manifestFile: DEFAULT_SEARCH_MANIFEST_FILE,
   chunking: { strategy: "heading", maxChunkChars: 2000 },
   embedding: { provider: "fastembed" },
   defaultMode: "hybrid",
@@ -120,8 +116,6 @@ function mergeSearchConfig(
 
   return {
     enabled: override.enabled ?? base.enabled,
-    indexFile: override.indexFile ?? base.indexFile,
-    manifestFile: override.manifestFile ?? base.manifestFile,
     chunking,
     embedding: override.embedding ?? base.embedding,
     defaultMode: override.defaultMode ?? base.defaultMode,

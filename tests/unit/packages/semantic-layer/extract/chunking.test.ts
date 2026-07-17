@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkNote } from "../../../../../packages/semantic-layer/src/search/chunking.js";
+import { chunkNote } from "../../../../../packages/semantic-layer/src/extract/chunking.js";
 import { readVault } from "../../../../../packages/semantic-layer/src/vault.js";
 import { createTempVault } from "../../../../helpers.js";
 

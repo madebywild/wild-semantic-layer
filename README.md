@@ -10,11 +10,13 @@ The package provides:
 - `semantic-layer check` - validate frontmatter, hierarchy, schemas,
   wikilinks, TypeScript/JavaScript symbol references, freshness, and configured
   invariants.
-- `semantic-layer index` - regenerate `vault/HIERARCHY.md` and
-  `vault/.semantic-layer/code-refs.json` for agents.
+- `semantic-layer index` - regenerate `vault/HIERARCHY.md`,
+  `vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index.
 - `semantic-layer init` - scaffold a working vault and config.
 - `semantic-layer refine` - stage, list, promote, or reject evolutionary
   self-improvement refinement candidates.
+- `semantic-layer search` - full-text + vector search over the vault index.
+- `semantic-layer graph` - explore backlinks, hierarchy, code impact, and cycles.
 
 See the package README for the consumer-facing reference:
 [`packages/semantic-layer/README.md`](packages/semantic-layer/README.md).

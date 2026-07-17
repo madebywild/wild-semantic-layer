@@ -14,6 +14,8 @@ export type Embedder = {
   readonly dimensions: number;
   embedDocuments(texts: string[]): Promise<number[][]>;
   embedQuery(text: string): Promise<number[]>;
+  /** Optional cleanup hook. FastEmbed embedders release the native ONNX session. */
+  close?(): Promise<void>;
 };
 
 export const FASTEMBED_UNAVAILABLE_MESSAGE =
@@ -103,9 +105,15 @@ async function createLocalFastEmbedEmbedder(
     id: `fastembed:${model}`,
     dimensions,
     embedDocuments: (texts) => collectBatches(instance.passageEmbed(texts)),
-    // fastembed returns Float32Array vectors; Orama's vector validation rejects them even though
-    // `.length` matches the declared dimension, so every vector must be converted to a plain array.
+    // fastembed returns Float32Array vectors; LadybugDB expects plain arrays, so every vector must
+    // be converted before insertion or query.
     embedQuery: async (text) => Array.from(await instance.queryEmbed(text)),
+    close: async () => {
+      // Releasing the ONNX session prevents the uncaught native mutex error that fastembed's
+      // cleanup sometimes throws on process exit.
+      const session = (instance as unknown as { session?: { release(): Promise<void> } }).session;
+      await session?.release();
+    },
   };
 }
 

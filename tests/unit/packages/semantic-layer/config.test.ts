@@ -214,8 +214,6 @@ describe("loadConfig", () => {
       const config = loadConfig({ cwd: dir });
       expect(config.search).toEqual({
         enabled: true,
-        indexFile: ".semantic-layer/search-index.msp",
-        manifestFile: ".semantic-layer/search-index.manifest.json",
         chunking: { strategy: "heading", maxChunkChars: 2000 },
         embedding: { provider: "fastembed" },
         defaultMode: "hybrid",

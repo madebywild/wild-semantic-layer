@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runCheck, runIndex, runInit } from "../../../../packages/semantic-layer/src/index.js";
-import { createTempDir } from "../../../helpers.js";
+import { createFakeEmbedder, createTempDir } from "../../../helpers.js";
 
 describe("init → check pipeline (integration)", () => {
   it("init then check passes", () => {
@@ -44,12 +44,12 @@ describe("init → check pipeline (integration)", () => {
     }
   });
 
-  it("init then index then check passes", () => {
+  it("init then index then check passes", async () => {
     const { dir, cleanup } = createTempDir();
     try {
       runInit({ cwd: dir });
-      // Run index to generate HIERARCHY.md
-      runIndex({ cwd: dir });
+      // Run index to generate HIERARCHY.md (fake embedder: no ONNX model, no network).
+      await runIndex({ cwd: dir, embedder: createFakeEmbedder() });
       // Check should still pass (HIERARCHY.md should be ignored)
       const result = runCheck({ cwd: dir });
       expect(result.errors).toHaveLength(0);

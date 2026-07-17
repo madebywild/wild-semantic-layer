@@ -87,7 +87,10 @@ describe("semantic-layer CLI blackbox", () => {
       ),
     };
 
-    container = await new GenericContainer("node:24-alpine")
+    // LadybugDB ships a native module that requires glibc + OpenSSL 3, so
+    // Alpine/musl is not supported and the slim image omits libssl. Use the
+    // full Debian-based image for blackbox tests.
+    container = await new GenericContainer("node:24")
       .withCommand(["sleep", "infinity"])
       .withCopyDirectoriesToContainer([{ source: workspacesDir, target: containerRoot }])
       .start();
@@ -180,6 +183,55 @@ describe("semantic-layer CLI blackbox", () => {
         namespace: "type",
       },
     });
+  });
+
+  it("searches the vault and explores the graph via the CLI", async () => {
+    // Reuses the monorepo workspace: it is installed and indexed by the test above.
+    const workspace = scenarios.monorepoTs;
+
+    const search = await cli(workspace, ["search", "authentication", "--mode", "fts"]);
+    expect(search.exitCode, search.output).toBe(0);
+    expect(search.output).toContain("service.auth");
+
+    const searchJson = await cli(workspace, [
+      "search",
+      "authentication",
+      "--mode",
+      "fts",
+      "--json",
+    ]);
+    expect(searchJson.exitCode, searchJson.output).toBe(0);
+    const parsedSearch = JSON.parse(searchJson.output) as { hits: Array<{ noteId: string }> };
+    expect(parsedSearch.hits.map((hit) => hit.noteId)).toContain("service.auth");
+
+    const backlinks = await cli(workspace, ["graph", "backlinks", "service.auth", "--json"]);
+    expect(backlinks.exitCode, backlinks.output).toBe(0);
+    const parsedBacklinks = JSON.parse(backlinks.output) as { hits: Array<{ sourceId: string }> };
+    expect(parsedBacklinks.hits.map((hit) => hit.sourceId)).toContain("service");
+
+    const impact = await cli(workspace, [
+      "graph",
+      "impact",
+      "--file",
+      "apps/api/src/service.ts",
+      "--json",
+    ]);
+    expect(impact.exitCode, impact.output).toBe(0);
+    const parsedImpact = JSON.parse(impact.output) as { hits: Array<{ noteId: string }> };
+    expect(parsedImpact.hits.map((hit) => hit.noteId)).toContain("service.auth");
+
+    // Missing arguments and invalid values must exit non-zero with a readable error.
+    for (const args of [
+      ["search"],
+      ["graph"],
+      ["graph", "nope"],
+      ["graph", "impact"],
+      ["search", "x", "--mode", "bogus"],
+      ["search", "x", "--limit", "0"],
+    ]) {
+      const result = await cli(workspace, args);
+      expect(result.exitCode, `expected failure for: ${args.join(" ")}`).not.toBe(0);
+    }
   });
 
   it("runs the simple JavaScript consumer refinement lifecycle", async () => {

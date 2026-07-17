@@ -1,10 +1,17 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { runSearch } from "../../../../../packages/semantic-layer/src/commands/search.js";
 import { loadConfig } from "../../../../../packages/semantic-layer/src/config.js";
-import { searchBuildResolved } from "../../../../../packages/semantic-layer/src/search/build.js";
-import { searchQueryResolved } from "../../../../../packages/semantic-layer/src/search/query.js";
+import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
+import {
+  readIndexMeta,
+  writeIndexMeta,
+} from "../../../../../packages/semantic-layer/src/db/meta.js";
+import { querySearch } from "../../../../../packages/semantic-layer/src/db/queries/search.js";
 import type { ResolvedConfig } from "../../../../../packages/semantic-layer/src/types.js";
+import type { TempVault } from "../../../../helpers.js";
 import {
   createFakeEmbedder,
   createTempVault,
@@ -22,13 +29,27 @@ function setupVault(files: Record<string, string>) {
   return { tv, config };
 }
 
-describe("searchQueryResolved — cold start", () => {
+function cleanup(_tv: TempVault): void {
+  // Intentionally a no-op: LadybugDB 0.18.2's native close can return before the WAL checkpoint
+  // is fully finished, and deleting the temp directory while checkpointing is still in progress
+  // races with the filesystem and flakes/corrupts later tests. Rely on the OS /tmp cleaner.
+}
+
+// LadybugDB 0.18.2's FTS tokenizer does not treat newlines as separators, so tokens touching a
+// line break would fuse into unsearchable compounds; the indexer stores a newline-normalized
+// `searchText` copy for FTS (see schema.ts/insert.ts and the pinning test in
+// indexer/full-rebuild.test.ts). These fixtures deliberately put the searched term mid-line
+// anyway, so they assert plain FTS behavior and stay meaningful even if the quirk is fixed
+// upstream and the normalization is removed.
+const SEARCHABLE_WIDGETS_BODY = "## Section\n\nThe widgets are great.\n";
+
+describe("querySearch — cold start", () => {
   it("builds an index automatically when none exists yet, then queries it", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "## Section\n\nWidgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
-      const result = await searchQueryResolved(
+      const result = await querySearch(
         config,
         { query: "widgets" },
         { embedder: createFakeEmbedder() },
@@ -37,7 +58,25 @@ describe("searchQueryResolved — cold start", () => {
       expect(result.stale).toBe(false);
       expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
+    }
+  });
+
+  it("runSearch loads config from disk and queries the index", async () => {
+    const { tv } = setupVault({
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
+    });
+    try {
+      const result = await runSearch({
+        cwd: tv.dir,
+        query: "widgets",
+        mode: "fts",
+        embedder: createFakeEmbedder(),
+      });
+      expect(result.mode).toBe("fts");
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+    } finally {
+      await cleanup(tv);
     }
   });
 
@@ -49,38 +88,30 @@ describe("searchQueryResolved — cold start", () => {
         search: { ...config.search, enabled: false },
       };
       await expect(
-        searchQueryResolved(
-          disabledConfig,
-          { query: "anything" },
-          { embedder: createFakeEmbedder() },
-        ),
+        querySearch(disabledConfig, { query: "anything" }, { embedder: createFakeEmbedder() }),
       ).rejects.toThrow(/search is disabled/);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 });
 
-describe("searchQueryResolved — modes", () => {
+describe("querySearch — modes", () => {
   it("fts mode matches on text content", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "## Section\n\nWidgets galore.\n" }),
-      "vault/beta.md": noteMarkdown({ id: "beta", body: "## Section\n\nGadgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
+      "vault/beta.md": noteMarkdown({ id: "beta", body: "## Section\n\nThe gadgets are here.\n" }),
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(
-        config,
-        { query: "widgets", mode: "fts" },
-        { embedder },
-      );
+      const result = await querySearch(config, { query: "widgets", mode: "fts" }, { embedder });
       expect(result.mode).toBe("fts");
       expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
       expect(result.hits.map((hit) => hit.noteId)).not.toContain("beta");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
@@ -97,9 +128,9 @@ describe("searchQueryResolved — modes", () => {
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(
+      const result = await querySearch(
         config,
         { query: "Section\n\nA very specific phrase.", mode: "vector" },
         { embedder },
@@ -107,7 +138,7 @@ describe("searchQueryResolved — modes", () => {
       expect(result.mode).toBe("vector");
       expect(result.hits[0]?.noteId).toBe("alpha");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
@@ -118,8 +149,9 @@ describe("searchQueryResolved — modes", () => {
     try {
       // A controlled embedder: the target note's vector and the query vector have an exact
       // cosine similarity of 0.5 (query = [0.5, √3/2], target = [1, 0]) — above this package's
-      // 0.4 default, but below Orama's own out-of-the-box default of 0.8. Every other chunk maps
-      // to [0, -1] (cosine -0.866 against the query), so it can only surface via this threshold.
+      // 0.4 default, but below a stricter near-duplicate threshold like 0.8. Every other chunk
+      // maps to [0, -1] (cosine -0.866 against the query, distance 1.866 > 0.6), so it can only
+      // surface via this threshold.
       const embedder = {
         id: "fake:controlled",
         dimensions: 2,
@@ -127,56 +159,48 @@ describe("searchQueryResolved — modes", () => {
           texts.map((text) => (text.includes("TARGET_MARKER") ? [1, 0] : [0, -1])),
         embedQuery: async () => [0.5, Math.sqrt(3) / 2],
       };
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(
-        config,
-        { query: "anything", mode: "vector" },
-        { embedder },
-      );
+      const result = await querySearch(config, { query: "anything", mode: "vector" }, { embedder });
       expect(result.hits.map((hit) => hit.noteId)).toContain("target");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
   it("hybrid mode combines fts and vector signals without error", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "## Section\n\nWidgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(
-        config,
-        { query: "widgets", mode: "hybrid" },
-        { embedder },
-      );
+      const result = await querySearch(config, { query: "widgets", mode: "hybrid" }, { embedder });
       expect(result.mode).toBe("hybrid");
       expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
-  it("defaults to the config's defaultMode and defaultLimit when not specified", async () => {
+  it("defaults to the config's defaultMode when mode is not specified", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "## Section\n\nWidgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(config, { query: "widgets" }, { embedder });
+      const result = await querySearch(config, { query: "widgets" }, { embedder });
       expect(result.mode).toBe(config.search.defaultMode);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 });
 
-describe("searchQueryResolved — filters", () => {
+describe("querySearch — filters", () => {
   it("filters by status, tags, and audience", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": `---
@@ -193,7 +217,7 @@ audience: [eng]
 
 # Alpha
 
-Widgets content.
+The widgets content.
 `,
       "vault/beta.md": `---
 id: beta
@@ -209,62 +233,66 @@ audience: [agents]
 
 # Beta
 
-Widgets content too.
+The widgets content too.
 `,
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const byStatus = await searchQueryResolved(
+      const byStatus = await querySearch(
         config,
         { query: "widgets", mode: "fts", status: "active" },
         { embedder },
       );
       expect(byStatus.hits.map((hit) => hit.noteId)).toEqual(["beta"]);
 
-      const byTag = await searchQueryResolved(
+      const byTag = await querySearch(
         config,
         { query: "widgets", mode: "fts", tags: ["widgets"] },
         { embedder },
       );
       expect(byTag.hits.map((hit) => hit.noteId)).toEqual(["alpha"]);
 
-      const byAudience = await searchQueryResolved(
+      const byAudience = await querySearch(
         config,
         { query: "widgets", mode: "fts", audience: ["agents"] },
         { embedder },
       );
       expect(byAudience.hits.map((hit) => hit.noteId)).toEqual(["beta"]);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
   it("respects an explicit limit", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Widgets one.\n" }),
-      "vault/beta.md": noteMarkdown({ id: "beta", body: "Widgets two.\n" }),
-      "vault/gamma.md": noteMarkdown({ id: "gamma", body: "Widgets three.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "The widgets number one.\n" }),
+      "vault/beta.md": noteMarkdown({ id: "beta", body: "The widgets number two.\n" }),
+      "vault/gamma.md": noteMarkdown({ id: "gamma", body: "The widgets number three.\n" }),
     });
     try {
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const result = await searchQueryResolved(
+      const result = await querySearch(
         config,
         { query: "widgets", mode: "fts", limit: 1 },
         { embedder },
       );
       expect(result.hits).toHaveLength(1);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 });
 
-describe("searchQueryResolved — staleness and rebuild", () => {
-  it("warns and still searches when the index is stale", async () => {
+describe("querySearch — staleness and rebuild", () => {
+  // LadybugDB 0.18.2's native close can return before its WAL checkpoint is finished. Running the
+  // staleness/rebuild scenarios inside a single vault and a single test body keeps open/close
+  // cycles to a minimum and avoids the cross-test checkpoint races that flake when every scenario
+  // spins up its own temp database.
+  it("detects staleness, rebuilds on demand, and reports a fresh index", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Alpha original.\n" }),
     });
@@ -272,143 +300,115 @@ describe("searchQueryResolved — staleness and rebuild", () => {
       initGitRepo(tv.dir);
       gitCommitAll(tv.dir, "initial");
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
 
-      writeFileSync(
-        join(tv.vaultDir, "alpha.md"),
-        noteMarkdown({ id: "alpha", body: "Alpha changed.\n" }),
-      );
-      gitCommitAll(tv.dir, "edit alpha");
+      // Reuse a single LadybugDB connection for every query in this scenario to avoid the WAL
+      // checkpoint race that flakes when the same test opens and closes the database repeatedly.
+      await withConnectionForConfig(config, async (conn) => {
+        // Cold-build the index and sanity-check that the original content is searchable.
+        const coldResult = await querySearch(
+          config,
+          { query: "original", mode: "fts" },
+          { embedder, connection: conn },
+        );
+        expect(coldResult.rebuilt).toBe(true);
+        expect(coldResult.hits.map((hit) => hit.noteId)).toContain("alpha");
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const result = await searchQueryResolved(
-        config,
-        { query: "original", mode: "fts" },
-        { embedder },
-      );
-      expect(result.stale).toBe(true);
-      expect(result.rebuilt).toBe(false);
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("results"));
-      errorSpy.mockRestore();
+        // Change the note and commit again.
+        writeFileSync(
+          join(tv.vaultDir, "alpha.md"),
+          noteMarkdown({ id: "alpha", body: "Alpha changed.\n" }),
+        );
+        gitCommitAll(tv.dir, "edit alpha");
+
+        // A query without rebuilding sees the stale warning but still searches the old index.
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const staleResult = await querySearch(
+          config,
+          { query: "original", mode: "fts" },
+          { embedder, connection: conn },
+        );
+        expect(staleResult.stale).toBe(true);
+        expect(staleResult.rebuilt).toBe(false);
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("results"));
+        errorSpy.mockRestore();
+
+        // A query with --rebuild refreshes the index and finds the new content.
+        const rebuiltResult = await querySearch(
+          config,
+          { query: "changed", mode: "fts", rebuild: true },
+          { embedder, connection: conn },
+        );
+        expect(rebuiltResult.rebuilt).toBe(true);
+        expect(rebuiltResult.stale).toBe(false);
+        expect(rebuiltResult.hits.map((hit) => hit.noteId)).toContain("alpha");
+
+        // Immediately after a rebuild, the index is fresh again.
+        const freshResult = await querySearch(
+          config,
+          { query: "changed", mode: "fts" },
+          { embedder, connection: conn },
+        );
+        expect(freshResult.stale).toBe(false);
+      });
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
-  it("--rebuild refreshes the index before querying", async () => {
-    const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Alpha original.\n" }),
-    });
-    try {
-      initGitRepo(tv.dir);
-      gitCommitAll(tv.dir, "initial");
-      const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
-
-      writeFileSync(
-        join(tv.vaultDir, "alpha.md"),
-        noteMarkdown({ id: "alpha", body: "Alpha changed.\n" }),
-      );
-      gitCommitAll(tv.dir, "edit alpha");
-
-      const result = await searchQueryResolved(
-        config,
-        { query: "changed", mode: "fts", rebuild: true },
-        { embedder },
-      );
-      expect(result.rebuilt).toBe(true);
-      expect(result.stale).toBe(false);
-      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
-    } finally {
-      tv.cleanup();
-    }
-  });
-
-  it("is not stale immediately after a build with no further changes", async () => {
-    const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Alpha content.\n" }),
-    });
-    try {
-      initGitRepo(tv.dir);
-      gitCommitAll(tv.dir, "initial");
-      const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
-
-      const result = await searchQueryResolved(
-        config,
-        { query: "alpha", mode: "fts" },
-        { embedder },
-      );
-      expect(result.stale).toBe(false);
-    } finally {
-      tv.cleanup();
-    }
-  });
-
-  it("flags staleness when the manifest's embedder no longer matches what the live config resolves to", async () => {
+  it("flags staleness when the meta's embedder no longer matches what the live config resolves to", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Alpha content.\n" }),
     });
     try {
-      await searchBuildResolved(config, {}, { embedder: createFakeEmbedder() });
+      await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       // No deps.embedder this time, and fts mode needs none at all, so the staleness check falls
-      // back to comparing the manifest's recorded identity ("fake:8") against what the live
-      // config would actually resolve to (fastembed's default) — they don't match. Without the
-      // fix for this exact tautology, this compared the manifest against itself and could never
-      // detect an embedder/config change.
-      const result = await searchQueryResolved(config, { query: "alpha", mode: "fts" });
+      // back to comparing the meta's recorded identity ("fake:8") against what the live config
+      // would actually resolve to (fastembed's default) — they don't match.
+      const result = await querySearch(config, { query: "alpha", mode: "fts" });
       expect(result.stale).toBe(true);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 });
 
-describe("searchQueryResolved — embedder mismatches", () => {
-  it("fails clearly for vector mode against an FTS-only index, but fts mode still works", async () => {
+describe("querySearch — embedder mismatches", () => {
+  it("fails clearly for vector and hybrid modes against an FTS-only index, but fts mode still works", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Widgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
-      // No deps.embedder and no real network: build a genuinely FTS-only index by hand-writing a
-      // manifest that claims the "fts-only" embedding identity, matching what build.ts records
-      // when the real embedder is unavailable.
+      // Build a normal index, then hand-rewrite the meta sidecar to claim the "fts-only"
+      // embedding identity, matching what the indexer records when the real embedder is
+      // unavailable on the build platform.
       const embedder = createFakeEmbedder();
-      await searchBuildResolved(config, {}, { embedder });
+      await buildIndex(config, {}, { embedder });
 
-      const { readManifest, writeManifestAtomic } = await import(
-        "../../../../../packages/semantic-layer/src/search/manifest.js"
-      );
-      const manifestFile = join(config.vaultDir, config.search.manifestFile);
-      const manifest = readManifest(manifestFile);
-      if (!manifest) throw new Error("expected a manifest");
-      writeManifestAtomic(manifestFile, {
-        ...manifest,
-        embedding: { id: "fts-only", dimensions: 1 },
-      });
+      const meta = readIndexMeta(config);
+      if (!meta) throw new Error("expected an index meta sidecar");
+      writeIndexMeta(config, { ...meta, embedding: { kind: "fts-only" } });
 
       await expect(
-        searchQueryResolved(config, { query: "widgets", mode: "vector" }, { embedder }),
+        querySearch(config, { query: "widgets", mode: "vector" }, { embedder }),
+      ).rejects.toThrow(/FTS-only/);
+      await expect(
+        querySearch(config, { query: "widgets", mode: "hybrid" }, { embedder }),
       ).rejects.toThrow(/FTS-only/);
 
-      const ftsResult = await searchQueryResolved(
-        config,
-        { query: "widgets", mode: "fts" },
-        { embedder },
-      );
+      const ftsResult = await querySearch(config, { query: "widgets", mode: "fts" }, { embedder });
       expect(ftsResult.hits.map((hit) => hit.noteId)).toContain("alpha");
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 
   it("fails clearly when the query embedder doesn't match the one the index was built with", async () => {
     const { tv, config } = setupVault({
-      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Widgets galore.\n" }),
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
-      await searchBuildResolved(config, {}, { embedder: createFakeEmbedder() });
+      await buildIndex(config, {}, { embedder: createFakeEmbedder() });
 
       const mismatchedEmbedder = {
         id: "fake:different",
@@ -418,14 +418,10 @@ describe("searchQueryResolved — embedder mismatches", () => {
       };
 
       await expect(
-        searchQueryResolved(
-          config,
-          { query: "widgets", mode: "vector" },
-          { embedder: mismatchedEmbedder },
-        ),
+        querySearch(config, { query: "widgets", mode: "vector" }, { embedder: mismatchedEmbedder }),
       ).rejects.toThrow(/was built with embedder/);
     } finally {
-      tv.cleanup();
+      await cleanup(tv);
     }
   });
 });

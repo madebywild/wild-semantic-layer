@@ -1,3 +1,5 @@
+import type { Embedder } from "./search/embedder.js";
+
 export type Status = "draft" | "active" | "deprecated";
 
 export type CodeRefKind =
@@ -130,6 +132,7 @@ export type RefinementListOptions = {
 export type RefinementPromoteOptions = {
   id: string;
   notes: string[];
+  embedder?: Embedder;
 };
 
 export type RefinementRejectOptions = {
@@ -153,8 +156,6 @@ export type SearchEmbeddingProviderConfig =
 
 export type SearchConfig = {
   enabled?: boolean;
-  indexFile?: string;
-  manifestFile?: string;
   chunking?: {
     strategy: SearchChunkingStrategy;
     maxChunkChars?: number;
@@ -167,8 +168,6 @@ export type SearchConfig = {
 /** `SearchConfig` with every optional field defaulted, as carried on `ResolvedConfig`. */
 export type ResolvedSearchConfig = {
   enabled: boolean;
-  indexFile: string;
-  manifestFile: string;
   chunking: {
     strategy: SearchChunkingStrategy;
     maxChunkChars: number;
@@ -211,3 +210,75 @@ export type CheckResult = {
   errors: string[];
   noteCount: number;
 };
+
+export type BuildIndexResult = {
+  mode: "full" | "incremental";
+  ftsOnly: boolean;
+  notesIndexed: number;
+  notesRemoved: number;
+  noteCount: number;
+  chunkCount: number;
+  dbFile: string;
+  metaFile: string;
+};
+
+export type SearchQueryOptions = {
+  query: string;
+  mode?: SearchMode;
+  limit?: number;
+  status?: string;
+  tags?: string[];
+  audience?: string[];
+  /** Runs a full index rebuild before querying, instead of just warning if the index looks stale. */
+  rebuild?: boolean;
+};
+
+export type SearchQueryHit = {
+  id: string;
+  noteId: string;
+  headingPath: string;
+  title: string;
+  text: string;
+  status: string;
+  /** Higher is better: BM25 for fts, cosine similarity (1 - distance) for vector, RRF for hybrid. */
+  score: number;
+};
+
+export type SearchQueryResult = {
+  mode: SearchMode;
+  hits: SearchQueryHit[];
+  /** True if the index looked out of date and was NOT rebuilt (a non-fatal warning was printed). */
+  stale: boolean;
+  /** True if a build ran first: a cold start (no index yet) or an explicit `--rebuild`. */
+  rebuilt: boolean;
+};
+
+export type BacklinkResult = {
+  sourceId: string;
+  sourceTitle: string;
+  anchor?: string;
+  status: string;
+};
+export type ForwardLinkResult = {
+  targetId: string;
+  targetTitle: string;
+  anchor?: string;
+  status: string;
+};
+export type DescendantResult = { id: string; title: string; depth: number; status: string };
+export type AncestorResult = { id: string; title: string; depth: number; status: string };
+export type OrphanResult = { id: string; title: string; status: string };
+export type RelatedNoteResult = {
+  id: string;
+  title: string;
+  sharedTags: string[];
+  commonBacklinks: number;
+};
+export type CodeImpactResult = {
+  noteId: string;
+  title: string;
+  file: string;
+  symbol: string;
+  kind: string;
+};
+export type CycleResult = { path: string[] };
