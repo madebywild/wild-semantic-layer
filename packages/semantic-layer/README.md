@@ -453,6 +453,16 @@ pointing at the fix rather than a native-loader stack trace. To get local
 vector search inside a container, use a glibc-based base image; otherwise
 switch `search.embedding.provider` to `gemini`.
 
+## Migrating to 1.0
+
+Version `1.0.0` adds the LadybugDB-backed local search index (`search` and
+`graph` commands, `search:` config block) and makes `semantic-layer index`
+build it. Existing vaults and configs keep working unchanged — everything in
+`search:` is optional with the defaults shown above. If you built from the
+pre-release `feature/search-index` branch, note the local embedding provider
+key is `local` (the branch briefly used `fastembed`, which fails with a clear
+rename hint). See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
+
 ## Migrating to 0.3
 
 Version `0.3.0` replaces text-regex declaration matching with TypeScript

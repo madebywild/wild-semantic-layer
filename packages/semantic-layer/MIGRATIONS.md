@@ -1,6 +1,6 @@
 # @madebywild/semantic-layer migrations
 
-## Unreleased
+## 1.0.0
 
 Adds a local [LadybugDB](https://ladybugdb.com)-backed vault index (search +
 graph queries) and makes `semantic-layer index` build it. The index lives in a

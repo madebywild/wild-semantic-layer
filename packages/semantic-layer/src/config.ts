@@ -134,7 +134,7 @@ function mergeSearchConfig(
 
   const embedding = override.embedding ?? base.embedding;
   if (embedding.provider !== "local" && embedding.provider !== "gemini") {
-    // "fastembed" was the pre-0.4 name for the local provider; call it out explicitly so old
+    // "fastembed" was the pre-1.0 name for the local provider; call it out explicitly so old
     // config files fail with a rename hint instead of a bare enum error.
     const hint =
       (embedding as { provider: string }).provider === "fastembed"
