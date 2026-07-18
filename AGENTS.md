@@ -49,13 +49,7 @@ Treat `pnpm harness apply` as a required gate for those changes. If it fails, fi
 
 ## Quality Gates
 
-Before handing off a task, run the relevant gates and report results. For normal code changes, prefer the full handoff gate:
-
-```bash
-pnpm check
-```
-
-At minimum, every finished task must have these gates covered unless there is a clear blocker:
+Before handing off a task, run the relevant gates and report results. Routine changes do NOT run the full check suite. The minimum gates for every finished task, unless there is a clear blocker, are:
 
 ```bash
 pnpm format:check
@@ -63,14 +57,15 @@ pnpm lint
 pnpm typecheck
 ```
 
-Use the smallest defensible subset only for narrow non-code changes, and state what was skipped and why. If a gate fails, report the exact command and the failure.
+plus the tests that cover the code you touched (run the smallest vitest scope that exercises the change, not the whole suite).
 
-### Release / Merge Gate
-
-Before merging a branch into `main` or preparing a release, additionally run the heavier local gate:
+The full suites run only before a release — any version bump (patch, minor, or major) requires both, before the release tag is created:
 
 ```bash
+pnpm check
 pnpm check:release
 ```
 
-It runs `pnpm check` plus the containerized integration suite (`tests/integration-container/`, Linux/glibc parity via Testcontainers, requires Docker). This gate runs locally by design to save CI compute: do not add it to CI workflows, and do not fold it back into the default `pnpm check`. If Docker is unavailable, report that the release gate was skipped and why instead of silently proceeding.
+`pnpm check` runs format/lint/typecheck, unit + integration with coverage, the e2e Testcontainers suite, and the demo showcase. `pnpm check:release` adds the containerized integration suite (`tests/integration-container/`, Linux/glibc parity via Testcontainers, requires Docker). The containerized suite stays local by design to save CI compute: do not add it to CI workflows, and do not fold it back into the default `pnpm check`. If Docker is unavailable, report that the release gate was skipped and why instead of silently proceeding.
+
+Use the smallest defensible subset of the minimum gates only for narrow non-code changes, and state what was skipped and why. If a gate fails, report the exact command and the failure.

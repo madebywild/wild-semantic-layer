@@ -5,7 +5,7 @@ desc: Test-suite layers and isolation guarantees for the semantic-layer package.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-07-17
+last_verified: 2026-07-18
 ttl_days: 180
 tags: [meta, testing]
 layer: demo
@@ -22,8 +22,8 @@ Four vitest projects cover the package, from fastest to most isolated:
   lockfile, and asserts the suite passes; the container is removed after the
   run (Testcontainers' Ryuk reaper covers crashes), so LadybugDB temp-file
   debris never accumulates on the host. It is not part of the default
-  `pnpm check`: agents run it locally via `pnpm check:release` before merging
-  into `main` or cutting a release, deliberately keeping it out of CI.
+  `pnpm check`: agents run it locally via `pnpm check:release` before cutting
+  any release (patch, minor, or major), deliberately keeping it out of CI.
 - `e2e` packs `@madebywild/semantic-layer` once, runs one `node:24`
   Testcontainers runtime, and exercises the published CLI in isolated
   consumer workspaces: a monorepo TypeScript service with custom code-ref
