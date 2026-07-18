@@ -28,5 +28,15 @@ suites cover this.
 
 Long-lived processes embedding the library keep one pooled database handle
 open per process (see [[meta.testing]] for why); the on-disk file stays
-complete between commands because the WAL is drained after every unit of
-work.
+complete between commands because the WAL is drained after every writing unit
+of work (read-only units skip the no-op drain).
+
+Scale notes from a BEIR benchmark run (5k-9k-note vaults, LadybugDB 0.18.2):
+the HNSW vector index is built in one bulk pass after embeddings are stored —
+the incremental per-UPDATE index path segfaults at ~5k vectors; embedding runs
+in length-sorted batches of 32 (an unbounded bulk call OOM-kills, and naive
+padding tripled indexing time); the buffer pool is capped at 2 GiB; and
+read-only WAL drains are skipped because every checkpoint risks a native
+checkpoint race that can corrupt the database on a crash. Hybrid mode won on
+all three datasets (SciFact 0.725, NFCorpus 0.349, ArguAna 0.375 nDCG@10),
+a few points above either fts or vector alone.
