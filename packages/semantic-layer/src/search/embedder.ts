@@ -80,6 +80,13 @@ const DEFAULT_LOCAL_MODEL = "nomic-ai/nomic-embed-text-v1.5";
 const LOCAL_DOCUMENT_PREFIX = "search_document: ";
 const LOCAL_QUERY_PREFIX = "search_query: ";
 
+/**
+ * Maximum texts per ONNX forward pass. transformers.js runs the whole input array as one padded
+ * batch, so an unbounded bulk call (a full-rebuild embeds every chunk at once) materializes
+ * batch×seqlen×hidden×layers activations and gets the process OOM-killed; 32 keeps that bounded.
+ */
+const LOCAL_EMBED_BATCH_SIZE = 32;
+
 async function createLocalEmbedder(
   config: Extract<SearchEmbeddingProviderConfig, { provider: "local" }>,
 ): Promise<Embedder> {
@@ -109,11 +116,33 @@ async function createLocalEmbedder(
   }
 
   const embed = async (texts: string[]): Promise<number[][]> => {
-    if (texts.length === 0) return [];
-    const output = await extractor(texts, { pooling: "mean", normalize: true });
-    return (output.tolist() as number[][]).map((vector) =>
-      truncateAndRenormalize(vector, dimensions),
-    );
+    // Sort by length before batching (restoring input order after): attention cost is quadratic
+    // in the padded batch length, so mixed-length batches pay for the longest text in each.
+    // Length-grouped batches are several times faster on heterogeneous corpora.
+    const indexed = texts.map((text, index) => ({ text, index }));
+    indexed.sort((a, b) => a.text.length - b.text.length);
+    const vectors: (number[] | undefined)[] = new Array(texts.length);
+    for (let start = 0; start < indexed.length; start += LOCAL_EMBED_BATCH_SIZE) {
+      const batch = indexed.slice(start, start + LOCAL_EMBED_BATCH_SIZE);
+      const output = await extractor(
+        batch.map((entry) => entry.text),
+        { pooling: "mean", normalize: true },
+      );
+      try {
+        (output.tolist() as number[][]).forEach((vector, position) => {
+          const entry = batch[position];
+          if (entry) vectors[entry.index] = truncateAndRenormalize(vector, dimensions);
+        });
+      } finally {
+        // transformers.js tensors own native memory that JS GC reclaims far too late: across a
+        // multi-thousand-note index build, undisposed output tensors OOM-kill the process.
+        output.dispose();
+      }
+    }
+    return vectors.map((vector) => {
+      if (!vector) throw new Error("local embedder did not return a vector for every input");
+      return vector;
+    });
   };
 
   return {

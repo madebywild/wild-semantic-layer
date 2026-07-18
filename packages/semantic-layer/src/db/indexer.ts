@@ -166,9 +166,6 @@ async function runFullRebuild(
 
   await dropSchema(conn);
   await createSchema(conn, embedder?.dimensions);
-  if (embedder) {
-    await createVectorIndex(conn, embedder.dimensions);
-  }
 
   const chunks = [...validNotes.values()].flatMap((note) =>
     chunkNote(note, config.search.chunking),
@@ -192,6 +189,12 @@ async function runFullRebuild(
   if (embedder) {
     const embeddings = await embedder.embedDocuments(chunks.map((c) => c.text));
     await updateChunkEmbeddings(conn, chunks, embeddings);
+    // The HNSW index is built only now, in one bulk CREATE_VECTOR_INDEX pass over the populated
+    // table: LadybugDB 0.18.2's incremental index-maintenance path (one HNSW insert per SET)
+    // segfaults at scale — libvector OnDiskHNSWIndex::shrinkForNode null-derefs inside
+    // simsimd_cos_f32_neon once the graph grows into the thousands (reproduced at ~5k chunks).
+    // Incremental rebuilds keep the existing index; their per-run update volume stays small.
+    await createVectorIndex(conn, embedder.dimensions);
   }
 
   await repairFtsIndex(conn);

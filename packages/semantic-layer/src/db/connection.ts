@@ -1,6 +1,6 @@
 import { Connection, Database } from "@ladybugdb/core";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ResolvedConfig } from "../types.js";
@@ -8,6 +8,15 @@ import { getPool, installExitHook, type PooledDatabase } from "./pool.js";
 import { createSchema } from "./schema.js";
 
 const DEFAULT_MAX_DB_SIZE_BYTES = 1024 * 1024 * 1024; // 1 GiB
+/**
+ * LadybugDB's default buffer pool claims ~80% of system RAM. A library must not do that — and on
+ * smaller machines the claim plus a resident embedding runtime (1-3 GB of ONNX arena) pressures
+ * the OS allocator hard enough that frame allocation in the checkpoint path fails natively
+ * (segfault in BufferManager::claimAFrame, observed after a 5k-note build on a 16 GB host).
+ * 2 GiB is ample for bulk index builds far beyond vault scale while leaving headroom for the
+ * embedder and the host OS.
+ */
+const BUFFER_MANAGER_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** Path of the vault's LadybugDB file; the single source of truth for every command. */
 export function dbFileForConfig(config: ResolvedConfig): string {
@@ -16,8 +25,14 @@ export function dbFileForConfig(config: ResolvedConfig): string {
 
 export function openDatabase(dbPath: string): Database {
   mkdirSync(dirname(dbPath), { recursive: true });
-  // bufferManagerSize 0 = library default, compression on, read-write.
-  const db = new Database(dbPath, 0, true, false, DEFAULT_MAX_DB_SIZE_BYTES);
+  // compression on, read-write; buffer pool capped (see above) instead of the 80%-of-RAM default.
+  const db = new Database(
+    dbPath,
+    BUFFER_MANAGER_SIZE_BYTES,
+    true,
+    false,
+    DEFAULT_MAX_DB_SIZE_BYTES,
+  );
   db.initSync();
   return db;
 }
@@ -148,11 +163,18 @@ async function withConnectionLocked<T>(
     await createSchema(conn);
     return await fn(conn);
   } finally {
-    // Drain the WAL at the end of every unit of work: the on-disk file stays complete for
-    // out-of-process readers while the pooled handle stays open, and the exit-time close has
-    // nothing left to hand to a background thread.
+    // Drain the WAL only when this unit of work actually wrote: a read-only unit leaves the
+    // WAL empty, and every CHECKPOINT is a chance to hit LadybugDB 0.18.2's checkpoint race
+    // (SIGSEGV in BufferManager::claimAFrame via writeDatabaseHeaderToStorage, reproduced
+    // repeatedly with a native embedding runtime resident — it fires on worker threads under
+    // thread contention, and a crashed finishCheckpoint corrupts the database header).
+    // Skipping no-op drains removes the race window from pure query workloads; write units
+    // still drain so the on-disk file stays complete for out-of-process readers.
     try {
-      await conn.query("CHECKPOINT");
+      const walPath = `${key}.wal`;
+      if (existsSync(walPath) && statSync(walPath).size > 0) {
+        await conn.query("CHECKPOINT");
+      }
     } catch {
       // Best-effort drain (e.g. the callback broke the connection).
     }
