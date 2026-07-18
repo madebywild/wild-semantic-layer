@@ -1,7 +1,10 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { stringify as yamlStringify } from "yaml";
+import { DEFAULT_SEARCH_CONFIG } from "../packages/semantic-layer/src/config.js";
+import type { Embedder } from "../packages/semantic-layer/src/search/embedder.js";
 import type { ResolvedConfig } from "../packages/semantic-layer/src/types.js";
 
 export type TempVault = {
@@ -66,6 +69,7 @@ export function createResolvedConfig(overrides?: Partial<ResolvedConfig>): Resol
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
     evolution: { stagingDir: "vault/.semantic-layer/refinements" },
+    search: DEFAULT_SEARCH_CONFIG,
     configFile: undefined,
     repoRoot: overrides?.repoRoot ?? "/tmp/test-repo",
     vaultDir: overrides?.vaultDir ?? "/tmp/test-repo/vault",
@@ -79,4 +83,68 @@ export function createResolvedConfig(overrides?: Partial<ResolvedConfig>): Resol
  */
 export function collectErrors(errors: string[], pattern: RegExp): string[] {
   return errors.filter((e) => pattern.test(e));
+}
+
+/**
+ * Initializes a real git repo at `dir` with a deterministic local identity and no GPG signing, so
+ * tests can exercise real git plumbing (used by git-diff and incremental-rebuild tests).
+ */
+export function initGitRepo(dir: string): void {
+  const run = (args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  run(["init", "-q", "-b", "main"]);
+  run(["config", "user.email", "test@example.com"]);
+  run(["config", "user.name", "Test"]);
+  run(["config", "commit.gpgsign", "false"]);
+}
+
+/** Stages every change in `dir` and commits it, returning the new commit's SHA. */
+export function gitCommitAll(dir: string, message: string): string {
+  execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir, stdio: "ignore" });
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+}
+
+/**
+ * A fast, deterministic `Embedder` for search tests: same text always maps to the same vector, no
+ * network or ONNX involved. Not semantically meaningful — just distinct enough for the pipeline
+ * (chunking → embed → insert → search) to be exercised end to end.
+ */
+export function createFakeEmbedder(dimensions = 8): Embedder {
+  return {
+    id: `fake:${dimensions}`,
+    dimensions,
+    embedDocuments: (texts) => Promise.resolve(texts.map((text) => fakeVector(text, dimensions))),
+    embedQuery: (text) => Promise.resolve(fakeVector(text, dimensions)),
+  };
+}
+
+function fakeVector(text: string, dimensions: number): number[] {
+  const vector = new Array(dimensions).fill(0);
+  for (let i = 0; i < text.length; i += 1) {
+    vector[i % dimensions] += text.charCodeAt(i);
+  }
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => value / magnitude);
+}
+
+/** Renders a minimal valid vault note (frontmatter + body) for search-index test fixtures. */
+export function noteMarkdown(options: {
+  id: string;
+  title?: string;
+  desc?: string;
+  body?: string;
+}): string {
+  const title = options.title ?? options.id;
+  const desc = options.desc ?? `${title} description.`;
+  return `---
+id: ${options.id}
+title: ${title}
+desc: ${desc}
+status: active
+owner: tester@example.com
+last_verified: 2026-05-13
+ttl_days: 365
+---
+
+${options.body ?? `# ${title}\n\nSome content about ${title}.\n`}`;
 }

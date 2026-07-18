@@ -35,3 +35,30 @@ export function validateNoteFrontmatter(note: {
     ),
   };
 }
+
+/**
+ * Splits vault notes into valid ones (with normalized frontmatter written back onto the note) and
+ * validation error messages. Shared by the index build and the sidecar writers so an invalid note
+ * can never be treated differently by the two paths.
+ */
+export function validateVaultNotes<T extends { id: string; fm: NoteFrontmatter }>(
+  notes: Map<string, T>,
+): { validNotes: Map<string, T>; errors: string[] } {
+  const validNotes = new Map<string, T>();
+  const errors: string[] = [];
+  for (const note of notes.values()) {
+    const parsed = validateNoteFrontmatter(note);
+    if (!parsed.ok) {
+      errors.push(...parsed.errors);
+      continue;
+    }
+    note.fm = parsed.frontmatter;
+    validNotes.set(note.id, note);
+  }
+  return { validNotes, errors };
+}
+
+/** Formats a list of validation errors as the standard `semantic-layer index` failure message. */
+export function formatIndexErrors(errors: string[]): string {
+  return `semantic-layer index failed:\n${errors.map((error) => `  - ${error}`).join("\n")}`;
+}

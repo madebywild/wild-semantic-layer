@@ -9,7 +9,7 @@ import {
   runRefinementStage,
 } from "../../../../packages/semantic-layer/src/refinements.js";
 import { readVault } from "../../../../packages/semantic-layer/src/vault.js";
-import { createTempVault } from "../../../helpers.js";
+import { createFakeEmbedder, createTempVault } from "../../../helpers.js";
 
 function validNoteMd(id: string, title = id, desc = "Test note."): string {
   return `---\nid: ${id}\ntitle: ${title}\ndesc: ${desc}\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\n---\n\n# ${title}\n`;
@@ -195,7 +195,7 @@ describe("refinement lifecycle", () => {
     }
   });
 
-  it("promotes a staged refinement only after check passes and regenerates the index", () => {
+  it("promotes a staged refinement only after check passes and regenerates the index", async () => {
     const tv = validVault();
     try {
       const staged = runRefinementStage({
@@ -206,10 +206,11 @@ describe("refinement lifecycle", () => {
         relatedNotes: ["root"],
       });
 
-      const promoted = runRefinementPromote({
+      const promoted = await runRefinementPromote({
         cwd: tv.dir,
         id: staged.refinement.id,
         notes: ["root"],
+        embedder: createFakeEmbedder(),
       });
 
       expect(promoted.refinement.status).toBe("promoted");
@@ -224,7 +225,7 @@ describe("refinement lifecycle", () => {
     }
   });
 
-  it("refuses promotion without notes, missing records, blank ids, or a passing check", () => {
+  it("refuses promotion without notes, missing records, blank ids, or a passing check", async () => {
     const tv = validVault();
     try {
       const staged = runRefinementStage({
@@ -234,21 +235,41 @@ describe("refinement lifecycle", () => {
         summary: "Promotion should be guarded by check.",
       });
 
-      expect(() =>
-        runRefinementPromote({ cwd: tv.dir, id: staged.refinement.id, notes: [] }),
-      ).toThrow("--note");
-      expect(() => runRefinementPromote({ cwd: tv.dir, id: " ", notes: ["root"] })).toThrow(
-        "refinement id",
-      );
-      expect(() =>
-        runRefinementPromote({ cwd: tv.dir, id: "missing-refinement", notes: ["root"] }),
-      ).toThrow("not found");
+      await expect(
+        runRefinementPromote({
+          cwd: tv.dir,
+          id: staged.refinement.id,
+          notes: [],
+          embedder: createFakeEmbedder(),
+        }),
+      ).rejects.toThrow("--note");
+      await expect(
+        runRefinementPromote({
+          cwd: tv.dir,
+          id: " ",
+          notes: ["root"],
+          embedder: createFakeEmbedder(),
+        }),
+      ).rejects.toThrow("refinement id");
+      await expect(
+        runRefinementPromote({
+          cwd: tv.dir,
+          id: "missing-refinement",
+          notes: ["root"],
+          embedder: createFakeEmbedder(),
+        }),
+      ).rejects.toThrow("not found");
 
       const rootPath = join(tv.vaultDir, "root.md");
       writeFileSync(rootPath, readFileSync(rootPath, "utf8").replace("title: root", 'title: ""'));
-      expect(() =>
-        runRefinementPromote({ cwd: tv.dir, id: staged.refinement.id, notes: ["root"] }),
-      ).toThrow("semantic-layer check failed");
+      await expect(
+        runRefinementPromote({
+          cwd: tv.dir,
+          id: staged.refinement.id,
+          notes: ["root"],
+          embedder: createFakeEmbedder(),
+        }),
+      ).rejects.toThrow("semantic-layer check failed");
     } finally {
       tv.cleanup();
     }

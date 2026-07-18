@@ -3,10 +3,13 @@ schemas:
   - id: meta
     title: Metadata
     parent: root
-    children: [agent-conventions, testing]
+    children: [agent-conventions, testing, search]
   - id: agent-conventions
     title: Agent conventions
     desc: Agent operating rules.
   - id: testing
     title: Testing contract
     desc: Blackbox e2e coverage expectations.
+  - id: search
+    title: Search index
+    desc: Local full-text + vector search over this vault.

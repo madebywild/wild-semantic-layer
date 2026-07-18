@@ -5,6 +5,7 @@ export default defineConfig({
     projects: [
       "tests/unit/vitest.config.ts",
       "tests/integration/vitest.config.ts",
+      "tests/integration-container/vitest.config.ts",
       "tests/e2e/vitest.config.ts",
     ],
     coverage: {

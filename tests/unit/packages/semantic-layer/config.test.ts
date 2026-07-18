@@ -207,4 +207,134 @@ describe("loadConfig", () => {
       cleanup();
     }
   });
+
+  it("returns default search config when no config file exists", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = loadConfig({ cwd: dir });
+      expect(config.search).toEqual({
+        enabled: true,
+        chunking: { strategy: "heading", maxChunkChars: 2000 },
+        embedding: { provider: "local" },
+        defaultMode: "hybrid",
+        defaultLimit: 10,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("merges partial search overrides onto defaults field-by-field", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultLimit: 25\n");
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.defaultLimit).toBe(25);
+      expect(config.search.defaultMode).toBe("hybrid");
+      expect(config.search.embedding).toEqual({ provider: "local" });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown embedding provider with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: openai\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(
+        /embedding\.provider must be "local" or "gemini"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects the renamed fastembed provider with a migration hint", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: fastembed\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(
+        /embedding\.provider must be "local" or "gemini".*renamed to "local"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("replaces embedding config wholesale rather than merging providers", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(
+        dir,
+        [
+          "vault: vault",
+          "search:",
+          "  embedding:",
+          "    provider: gemini",
+          "    model: text-embedding-004",
+        ].join("\n"),
+      );
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.embedding).toEqual({
+        provider: "gemini",
+        model: "text-embedding-004",
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("replaces chunking config wholesale but fills omitted maxChunkChars", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  chunking:\n    strategy: whole-note\n");
+      const config = loadConfig({ cwd: dir });
+      expect(config.search.chunking).toEqual({ strategy: "whole-note", maxChunkChars: 2000 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects a non-positive maxChunkChars with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(
+        dir,
+        "vault: vault\nsearch:\n  chunking:\n    strategy: heading\n    maxChunkChars: 0\n",
+      );
+      expect(() => loadConfig({ cwd: dir })).toThrow(/maxChunkChars must be a positive integer/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown chunking strategy with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  chunking:\n    strategy: paragraphs\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/chunking\.strategy must be/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown defaultMode with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultMode: semantic\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/defaultMode must be/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects a non-positive defaultLimit with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  defaultLimit: 0\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(/defaultLimit must be a positive integer/);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -19,18 +19,11 @@ function setupValidVault(extra?: {
   const files = { ...defaultFiles, ...extra?.files };
   const tv = createTempVault(files, extra?.config);
   return {
-    config: {
-      vault: "vault",
-      root: ".",
-      index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
-      frontmatter: { requiredExtraFields: [] },
-      externalInvariants: [],
-      evolution: { stagingDir: "vault/.semantic-layer/refinements" },
+    config: createResolvedConfig({
       repoRoot: tv.repoRoot,
       vaultDir: tv.vaultDir,
       refinementDir: `${tv.vaultDir}/.semantic-layer/refinements`,
-      configFile: undefined,
-    },
+    }),
     cleanup: tv.cleanup,
   };
 }
@@ -347,18 +340,11 @@ describe("checkResolved — missing root", () => {
     const tv = createTempVault({
       "vault/alpha.md": validNote("alpha"),
     });
-    const config: ResolvedConfig = {
-      vault: "vault",
-      root: ".",
-      index: { file: "HIERARCHY.md", codeRefsFile: ".semantic-layer/code-refs.json" },
-      frontmatter: { requiredExtraFields: [] },
-      externalInvariants: [],
-      evolution: { stagingDir: "vault/.semantic-layer/refinements" },
+    const config: ResolvedConfig = createResolvedConfig({
       repoRoot: tv.repoRoot,
       vaultDir: tv.vaultDir,
       refinementDir: `${tv.vaultDir}/.semantic-layer/refinements`,
-      configFile: undefined,
-    };
+    });
     try {
       const result = checkResolved(config);
       expect(result.errors.some((e) => e.includes("missing required `root.md`"))).toBe(true);

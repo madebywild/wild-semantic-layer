@@ -2,7 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@ladybugdb/core': true
   cpu-features: true
   esbuild: true
+  onnxruntime-node: true
   protobufjs: true
+  sharp: false
   ssh2: true

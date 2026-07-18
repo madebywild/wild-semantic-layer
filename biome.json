@@ -10,6 +10,7 @@
       "*.json",
       "*.ts",
       "apps/**/*.js",
+      "bench/**/*.ts",
       "packages/**/*.ts",
       "tests/**/*.ts",
       ".harness/src/**/*.json",

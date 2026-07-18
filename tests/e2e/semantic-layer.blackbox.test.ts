@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const tmpParent = join(repoRoot, ".tmp", "e2e");
@@ -87,7 +87,10 @@ describe("semantic-layer CLI blackbox", () => {
       ),
     };
 
-    container = await new GenericContainer("node:24-alpine")
+    // LadybugDB ships a native module that requires glibc + OpenSSL 3, so
+    // Alpine/musl is not supported and the slim image omits libssl. Use the
+    // full Debian-based image for blackbox tests.
+    container = await new GenericContainer("node:24")
       .withCommand(["sleep", "infinity"])
       .withCopyDirectoriesToContainer([{ source: workspacesDir, target: containerRoot }])
       .start();
@@ -180,6 +183,88 @@ describe("semantic-layer CLI blackbox", () => {
         namespace: "type",
       },
     });
+  });
+
+  it("searches the vault and explores the graph via the CLI", async () => {
+    // Reuses the monorepo workspace: it is installed and indexed by the test above.
+    const workspace = scenarios.monorepoTs;
+
+    const search = await cli(workspace, ["search", "authentication", "--mode", "fts"]);
+    expect(search.exitCode, search.output).toBe(0);
+    expect(search.output).toContain("service.auth");
+
+    const searchJson = await cli(workspace, [
+      "search",
+      "authentication",
+      "--mode",
+      "fts",
+      "--json",
+    ]);
+    expect(searchJson.exitCode, searchJson.output).toBe(0);
+    const parsedSearch = JSON.parse(searchJson.output) as { hits: Array<{ noteId: string }> };
+    expect(parsedSearch.hits.map((hit) => hit.noteId)).toContain("service.auth");
+
+    const backlinks = await cli(workspace, ["graph", "backlinks", "service.auth", "--json"]);
+    expect(backlinks.exitCode, backlinks.output).toBe(0);
+    const parsedBacklinks = JSON.parse(backlinks.output) as { hits: Array<{ sourceId: string }> };
+    expect(parsedBacklinks.hits.map((hit) => hit.sourceId)).toContain("service");
+
+    const impact = await cli(workspace, [
+      "graph",
+      "impact",
+      "--file",
+      "apps/api/src/service.ts",
+      "--json",
+    ]);
+    expect(impact.exitCode, impact.output).toBe(0);
+    const parsedImpact = JSON.parse(impact.output) as { hits: Array<{ noteId: string }> };
+    expect(parsedImpact.hits.map((hit) => hit.noteId)).toContain("service.auth");
+
+    // Flag plumbing: full rebuild, the search-index alias, filters, --version, and default check.
+    const fullRebuild = await cli(workspace, ["index", "--full"]);
+    expect(fullRebuild.exitCode, fullRebuild.output).toBe(0);
+    // The container has no working local embedding runtime, so the suffix may be " (fts-only)".
+    expect(fullRebuild.output).toMatch(/full( \(fts-only\))? rebuild/);
+
+    const alias = await cli(workspace, ["search-index"]);
+    expect(alias.exitCode, alias.output).toBe(0);
+    expect(alias.output).toContain("rebuild");
+
+    const filtered = await cli(workspace, [
+      "search",
+      "authentication",
+      "--mode",
+      "fts",
+      "--status",
+      "active",
+    ]);
+    expect(filtered.exitCode, filtered.output).toBe(0);
+    expect(filtered.output).toContain("service.auth");
+
+    const limited = await cli(workspace, ["search", "service", "--mode", "fts", "--limit", "1"]);
+    expect(limited.exitCode, limited.output).toBe(0);
+    expect(limited.output).toContain("1 hit(s)");
+
+    const version = await cli(workspace, ["--version"]);
+    expect(version.exitCode, version.output).toBe(0);
+
+    const defaultCheck = await cli(workspace, []);
+    expect(defaultCheck.exitCode, defaultCheck.output).toBe(0);
+    expect(defaultCheck.output).toContain("semantic-layer: ok");
+
+    // Missing arguments and invalid values must exit non-zero with a readable error.
+    for (const args of [
+      ["search"],
+      ["graph"],
+      ["graph", "nope"],
+      ["graph", "impact"],
+      ["search", "x", "--mode", "bogus"],
+      ["search", "x", "--limit", "0"],
+      ["nope"],
+    ]) {
+      const result = await cli(workspace, args);
+      expect(result.exitCode, `expected failure for: ${args.join(" ")}`).not.toBe(0);
+    }
   });
 
   it("runs the simple JavaScript consumer refinement lifecycle", async () => {

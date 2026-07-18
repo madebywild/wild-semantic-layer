@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { collectCodeRefRequestsFromNotes, resolveCodeRefs } from "./code-refs.js";
-import { loadConfig, type LoadConfigOptions } from "./config.js";
+import { type LoadConfigOptions, loadConfig } from "./config.js";
 import { validateNoteFrontmatter } from "./frontmatter.js";
 import { validateRefinementStorage } from "./refinement-store.js";
-import { readVault, slug, toIsoDate } from "./vault.js";
 import type { CheckResult, NoteFrontmatter, ResolvedConfig } from "./types.js";
+import { readVault, slug, toIsoDate } from "./vault.js";
 
 export function runCheck(options: LoadConfigOptions = {}): CheckResult {
   return checkResolved(loadConfig(options));

@@ -25,6 +25,10 @@ It also provides the workflow pieces agents need around the vault:
 - `semantic-layer refine` stages, promotes, and rejects untrusted
   self-improvement signals without merging raw chat or transient context into
   trusted documentation.
+- `semantic-layer search` queries a local full-text + vector search index over
+  the vault, so agents can find relevant notes without reading every file.
+- `semantic-layer graph` explores the vault's knowledge graph: backlinks,
+  descendants, orphans, code-impact, and cycle detection.
 
 Use it when a repo needs documentation that is navigable, testable, and safe to
 hand to autonomous tools as current project context.
@@ -91,6 +95,8 @@ semantic-layer index
 semantic-layer init
 semantic-layer refine stage --source user-message --title "Runtime changed" --stdin
 semantic-layer refine list --status staged
+semantic-layer search "runtime contract"
+semantic-layer graph backlinks runtime
 semantic-layer --help
 ```
 
@@ -119,6 +125,14 @@ externalInvariants:
     usedIn: [demo.runtime]
 evolution:
   stagingDir: vault/.semantic-layer/refinements
+search:
+  chunking:
+    strategy: heading
+    maxChunkChars: 2000
+  embedding:
+    provider: local
+  defaultMode: hybrid
+  defaultLimit: 10
 ```
 
 Resolution order is CLI flags, then config file, then defaults. Supported config
@@ -134,6 +148,12 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
+| `search.enabled` | `true` | Whether `search`/`graph` and the LadybugDB index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars. |
+| `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
+| `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
+| `search.embedding.provider` | `local` | `local` (on-device) or `gemini` (hosted). See [Search](#search). |
+| `search.defaultMode` | `hybrid` | Default `search` mode: `fts`, `vector`, or `hybrid`. |
+| `search.defaultLimit` | `10` | Default result count for `search`. |
 
 CLI overrides:
 
@@ -292,9 +312,10 @@ schemas:
 
 ## Generated Index
 
-`semantic-layer index` writes `vault/HIERARCHY.md` and
-`vault/.semantic-layer/code-refs.json` by default. Agents should read
-`HIERARCHY.md` first, then load only the notes relevant to the task.
+`semantic-layer index` writes `vault/HIERARCHY.md`,
+`vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index at
+`vault/.semantic-layer/vault.lbug` (plus `vault.lbug.meta.json`). Agents should
+read `HIERARCHY.md` first, then load only the notes relevant to the task.
 
 The code refs sidecar is generated JSON:
 
@@ -332,6 +353,116 @@ before writing either generated file. If a symbol is missing or ambiguous, it
 leaves the previous generated files in place and reports the same code ref
 failure that `check` would report.
 
+## Search and Graph
+
+`semantic-layer index` builds a local LadybugDB graph database from the vault.
+The database stores notes, headings, chunks, wikilinks, hierarchy edges,
+tags/audience, and resolved code references. That same store powers full-text
+and vector search over the vault's notes, chunked per heading section.
+
+```bash
+semantic-layer index
+semantic-layer index --full
+
+semantic-layer search "runtime contract"
+semantic-layer search "runtime contract" --mode vector --limit 5
+semantic-layer search "runtime contract" --status active --tag runtime --json
+```
+
+The index (`vault/.semantic-layer/vault.lbug`) and its metadata sidecar
+(`vault/.semantic-layer/vault.lbug.meta.json`) are derived, gitignored files,
+cheap to regenerate. `index` rebuilds incrementally by default — comparing a
+content hash of every note against the previous build and rewriting only the
+notes that were added, changed, or deleted — and falls back to a full rebuild
+if there's no metadata yet or the chunking/embedding config changed. This
+works with or without git; the vault never has to be committed for the index
+to stay correct. Pass `--full` to force a full rebuild. `search` builds the
+index automatically on first use and refreshes it with `--rebuild`; otherwise
+a stale index (vault changed since the last build) just prints a warning to
+stderr and still searches, so a plain `search` call never has unpredictable
+rebuild latency.
+
+With `search.enabled: false`, `index` writes only `HIERARCHY.md` and
+`code-refs.json` and skips the database entirely (useful on platforms where
+LadybugDB's native module is unavailable; `search` and `graph` are unusable
+there).
+
+`--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
+`--status`, `--tag`, and `--audience` filter results by frontmatter; `--tag`
+and `--audience` may be repeated. `--json` prints machine-readable output
+instead of the human-readable list.
+
+### Graph queries
+
+`semantic-layer graph` exposes the vault's relationship graph for agents:
+
+```bash
+semantic-layer graph backlinks <noteId>      # notes linking to <noteId>
+semantic-layer graph links <noteId>          # notes <noteId> links to
+semantic-layer graph descendants <noteId>    # child notes in the hierarchy
+semantic-layer graph ancestors <noteId>      # parent notes in the hierarchy
+semantic-layer graph orphans                 # notes (except root) with no wikilinks either direction and no code refs
+semantic-layer graph related <noteId>        # notes with shared tags or common backlinks
+semantic-layer graph impact [--file src/mod.ts] [--symbol foo]
+semantic-layer graph cycles
+```
+
+Graph output prints one JSON object per line plus a summary line; pass
+`--json` for a single machine-readable envelope.
+
+### Embedding providers
+
+By default, vectors come from a local model run with
+[transformers.js](https://huggingface.co/docs/transformers.js)
+(`nomic-ai/nomic-embed-text-v1.5`, Matryoshka-truncated to 512 dimensions) —
+free, and no network calls after the first run, which downloads the quantized
+model (~130 MB) to `~/.cache/semantic-layer/models` (override with the
+`SEMANTIC_LAYER_MODEL_CACHE_DIR` env var or `search.embedding.cacheDir`).
+
+```yaml
+search:
+  embedding:
+    provider: local
+```
+
+Set `provider: gemini` to use Google's hosted embeddings instead — useful when
+local embeddings aren't an option (see the Alpine/musl note below):
+
+```yaml
+search:
+  embedding:
+    provider: gemini
+```
+
+Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
+`GEMINI_API_KEY` for convenience).
+
+### Alpine / musl
+
+LadybugDB ships a native module that requires glibc + OpenSSL 3. On
+`node:*-alpine` or similar, only the non-database commands work: `check`,
+`init`, and `refine stage|list|reject` load no native code at all. `index`
+(unless `search.enabled: false`), `search`, `graph`, and `refine promote`
+(with `search.enabled: true`) need a glibc-based image. The local embedding
+runtime (`@huggingface/transformers`, on `onnxruntime-node`) is an optional
+dependency with the same musl limitation, but it degrades gracefully: on
+platforms where its native bindings fail to load, `index` builds an
+FTS-only index instead of failing — it prints a warning, `search --mode fts`
+keeps working, and `--mode vector`/`--mode hybrid` fail with a message
+pointing at the fix rather than a native-loader stack trace. To get local
+vector search inside a container, use a glibc-based base image; otherwise
+switch `search.embedding.provider` to `gemini`.
+
+## Migrating to 1.0
+
+Version `1.0.0` adds the LadybugDB-backed local search index (`search` and
+`graph` commands, `search:` config block) and makes `semantic-layer index`
+build it. Existing vaults and configs keep working unchanged — everything in
+`search:` is optional with the defaults shown above. If you built from the
+pre-release `feature/search-index` branch, note the local embedding provider
+key is `local` (the branch briefly used `fastembed`, which fails with a clear
+rename hint). See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
+
 ## Migrating to 0.3
 
 Version `0.3.0` replaces text-regex declaration matching with TypeScript
@@ -350,9 +481,11 @@ See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
 ```ts
 import {
   runCheck,
+  runGraph,
   runIndex,
   runInit,
   runRefinementStage,
+  runSearch,
 } from "@madebywild/semantic-layer";
 
 const result = runCheck({ cwd: process.cwd() });
@@ -360,7 +493,7 @@ if (result.errors.length > 0) {
   throw new Error(result.errors.join("\n"));
 }
 
-const index = runIndex();
+const index = await runIndex();
 console.log(index.codeRefsFile);
 runInit({ vault: "vault", owner: "eng@example.com" });
 runRefinementStage({
@@ -369,6 +502,18 @@ runRefinementStage({
   summary: "The runtime contract now targets Node.js 24.",
   relatedNotes: ["demo.runtime"],
 });
+
+const { hits } = await runSearch({
+  cwd: process.cwd(),
+  query: "runtime contract",
+  mode: "hybrid",
+});
+
+const { hits: backlinkHits } = await runGraph({
+  cwd: process.cwd(),
+  subcommand: "backlinks",
+  noteId: "demo.runtime",
+});
 ```
 
 Exports:
@@ -376,9 +521,13 @@ Exports:
 - `loadConfig`
 - `runCheck`
 - `runIndex`
+- `indexResolved`
 - `runInit`
 - `runRefinementStage`
 - `runRefinementList`
 - `runRefinementPromote`
 - `runRefinementReject`
-- TypeScript types for config, notes, schemas, and check results
+- `runSearch`
+- `runGraph`
+- `LocalEmbedderUnavailableError`
+- TypeScript types for config, notes, schemas, search/graph results, and check results

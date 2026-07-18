@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
-import { loadConfig, type LoadConfigOptions } from "./config.js";
 import { checkResolved } from "./check.js";
-import { indexResolved } from "./index-vault.js";
+import { type LoadConfigOptions, loadConfig } from "./config.js";
 import {
   ensureRefinementDirs,
   moveRefinementRecord,
@@ -38,11 +37,13 @@ export function runRefinementList(
   return { refinements: records, errors };
 }
 
-export function runRefinementPromote(options: LoadConfigOptions & RefinementPromoteOptions): {
+export async function runRefinementPromote(
+  options: LoadConfigOptions & RefinementPromoteOptions,
+): Promise<{
   file: string;
   indexFile: string;
   refinement: RefinementRecord;
-} {
+}> {
   const config = loadConfig(options);
   const notes = normalizeList(options.notes);
   if (notes.length === 0) throw new Error("refine promote requires at least one --note value");
@@ -68,7 +69,10 @@ export function runRefinementPromote(options: LoadConfigOptions & RefinementProm
   if (metadataErrors.length > 0) {
     throw new Error(`refinement metadata validation failed:\n${metadataErrors.join("\n")}`);
   }
-  const indexed = indexResolved(config);
+  // Lazy import: keeps the LadybugDB native module out of the process unless a command
+  // actually needs the index (see cli.ts's comment on lazy command loading).
+  const { indexResolved } = await import("./commands/index.js");
+  const indexed = await indexResolved(config, { embedder: options.embedder });
   return { file, indexFile: indexed.outFile, refinement: promoted };
 }
 
