@@ -27,7 +27,7 @@ function sampleMeta(overrides?: Partial<IndexMeta>): IndexMeta {
     vaultDir: "/tmp/test-repo/vault",
     lastIndexedSha: "abc123",
     lastIndexedAt: new Date().toISOString(),
-    embedding: { kind: "embedder", id: "fastembed:fast-bge-small-en-v1.5", dimensions: 384 },
+    embedding: { kind: "embedder", id: "local:nomic-ai/nomic-embed-text-v1.5", dimensions: 512 },
     chunking: { strategy: "heading", maxChunkChars: 2000 },
     noteContentHashes: {},
     ...overrides,
@@ -145,14 +145,14 @@ describe("isIndexStale (the build-time rebuild decision)", () => {
 
   it("is stale when the embedder dimensions mismatch", () => {
     const config = createResolvedConfig();
-    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 768);
+    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 768);
     expect(isIndexStale(config, sampleMeta(), embedder)).toBe(true);
   });
 
   it("is stale when an embedder is available but the index was built FTS-only", () => {
     const config = createResolvedConfig();
     const meta = sampleMeta({ embedding: { kind: "fts-only" } });
-    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 384);
+    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 512);
     expect(isIndexStale(config, meta, embedder)).toBe(true);
   });
 
@@ -185,7 +185,7 @@ describe("embedderMeta", () => {
   });
 
   it("returns kind, id and dimensions for an embedder", () => {
-    const embedder = fakeEmbedder("fastembed:fast-bge-small-en-v1.5", 384);
+    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 512);
     expect(embedderMeta(embedder)).toEqual({
       kind: "embedder",
       id: embedder.id,

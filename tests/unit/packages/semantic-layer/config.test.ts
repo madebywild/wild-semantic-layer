@@ -215,7 +215,7 @@ describe("loadConfig", () => {
       expect(config.search).toEqual({
         enabled: true,
         chunking: { strategy: "heading", maxChunkChars: 2000 },
-        embedding: { provider: "fastembed" },
+        embedding: { provider: "local" },
         defaultMode: "hybrid",
         defaultLimit: 10,
       });
@@ -231,7 +231,31 @@ describe("loadConfig", () => {
       const config = loadConfig({ cwd: dir });
       expect(config.search.defaultLimit).toBe(25);
       expect(config.search.defaultMode).toBe("hybrid");
-      expect(config.search.embedding).toEqual({ provider: "fastembed" });
+      expect(config.search.embedding).toEqual({ provider: "local" });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown embedding provider with a clear error", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: openai\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(
+        /embedding\.provider must be "local" or "gemini"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects the renamed fastembed provider with a migration hint", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: fastembed\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(
+        /embedding\.provider must be "local" or "gemini".*renamed to "local"/,
+      );
     } finally {
       cleanup();
     }

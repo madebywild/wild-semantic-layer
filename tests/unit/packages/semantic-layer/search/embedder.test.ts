@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEmbedder } from "../../../../../packages/semantic-layer/src/search/embedder.js";
 
-const REAL_FASTEMBED_ENV = "SEMANTIC_LAYER_TEST_REAL_FASTEMBED";
+const REAL_LOCAL_EMBEDDER_ENV = "SEMANTIC_LAYER_TEST_REAL_LOCAL_EMBEDDER";
 
 function stubFetchOnce(response: { ok: boolean; status?: number; body: unknown }) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -147,34 +147,37 @@ describe("createEmbedder (gemini)", () => {
   });
 });
 
-describe("createEmbedder (fastembed)", () => {
+describe("createEmbedder (local)", () => {
   it("throws a clear, actionable error for an unrecognized model without touching the network", async () => {
-    // On a platform where fastembed itself fails to load (e.g. Alpine/musl), the availability
-    // guard fires first — accept either outcome so this test isn't platform-dependent.
-    await expect(
-      createEmbedder({ provider: "fastembed", model: "not-a-real-model" }),
-    ).rejects.toThrow(
-      /Unknown fastembed model "not-a-real-model"|fastembed is unavailable on this platform/,
+    // The model check runs before the runtime is loaded, so this fails the same way on platforms
+    // where the local runtime itself is unavailable (e.g. Alpine/musl).
+    await expect(createEmbedder({ provider: "local", model: "not-a-real-model" })).rejects.toThrow(
+      /Unknown local embedding model "not-a-real-model"/,
     );
   });
 
-  it.skipIf(!process.env[REAL_FASTEMBED_ENV])(
+  it.skipIf(!process.env[REAL_LOCAL_EMBEDDER_ENV])(
     "loads the real local model and embeds text (opt-in, network + ONNX required)",
     async () => {
-      const embedder = await createEmbedder({ provider: "fastembed" });
-      expect(embedder.id).toBe("fastembed:fast-bge-small-en-v1.5");
-      expect(embedder.dimensions).toBe(384);
+      const embedder = await createEmbedder({ provider: "local" });
+      expect(embedder.id).toBe("local:nomic-ai/nomic-embed-text-v1.5");
+      expect(embedder.dimensions).toBe(512);
 
       const [vector] = await embedder.embedDocuments(["hello world"]);
-      expect(vector).toHaveLength(384);
-      // fastembed itself returns Float32Array; LadybugDB expects plain arrays, so the embedder
-      // must convert every vector before it is stored or queried.
+      if (!vector) throw new Error("expected a document vector");
+      expect(vector).toHaveLength(512);
+      // LadybugDB expects plain arrays, so the embedder must convert every vector before it is
+      // stored or queried.
       expect(Array.isArray(vector)).toBe(true);
+      // Matryoshka truncation must renormalize: vector search assumes unit-length vectors.
+      expect(Math.hypot(...vector)).toBeCloseTo(1, 5);
 
       const queryVector = await embedder.embedQuery("hello");
-      expect(queryVector).toHaveLength(384);
+      expect(queryVector).toHaveLength(512);
       expect(Array.isArray(queryVector)).toBe(true);
+
+      await embedder.close?.();
     },
-    60_000,
+    120_000,
   );
 });

@@ -19,9 +19,9 @@ function validNote(
   return `---\nid: ${id}\ntitle: ${title}\ndesc: ${desc}\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\n---\n\n${body}`;
 }
 
-// Simulate fastembed being unavailable so the indexer falls back to FTS-only.
-vi.mock("fastembed", () => {
-  throw new Error("fastembed unavailable");
+// Simulate the local embedding runtime being unavailable so the indexer falls back to FTS-only.
+vi.mock("@huggingface/transformers", () => {
+  throw new Error("local embedding runtime unavailable");
 });
 
 describe("indexer FTS-only build (embedder unavailable)", () => {
@@ -84,7 +84,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
   });
 
   it("degrades a cold-start vector-mode search to an FTS-only build, then explains itself", async () => {
-    // No index at all + fastembed unavailable: querySearch must swallow the embedder load
+    // No index at all + local embedder unavailable: querySearch must swallow the embedder load
     // failure, build an FTS-only index, and only then fail the vector query with the
     // actionable FTS-only message (not a native-loader stack trace).
     const tv = createTempVault({

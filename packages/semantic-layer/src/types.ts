@@ -151,7 +151,7 @@ export type SearchMode = "fts" | "vector" | "hybrid";
 
 /** Which embedder produces vectors for the search index; a discriminated union so provider-specific fields stay valid. */
 export type SearchEmbeddingProviderConfig =
-  | { provider: "fastembed"; model?: string; cacheDir?: string }
+  | { provider: "local"; model?: string; cacheDir?: string }
   | { provider: "gemini"; model?: string; apiKeyEnv?: string };
 
 export type SearchConfig = {

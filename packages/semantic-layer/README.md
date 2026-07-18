@@ -130,7 +130,7 @@ search:
     strategy: heading
     maxChunkChars: 2000
   embedding:
-    provider: fastembed
+    provider: local
   defaultMode: hybrid
   defaultLimit: 10
 ```
@@ -151,7 +151,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `search.enabled` | `true` | Whether `search`/`graph` and the LadybugDB index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars. |
 | `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
 | `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
-| `search.embedding.provider` | `fastembed` | `fastembed` (local) or `gemini` (hosted). See [Search](#search). |
+| `search.embedding.provider` | `local` | `local` (on-device) or `gemini` (hosted). See [Search](#search). |
 | `search.defaultMode` | `hybrid` | Default `search` mode: `fts`, `vector`, or `hybrid`. |
 | `search.defaultLimit` | `10` | Default result count for `search`. |
 
@@ -412,17 +412,17 @@ Graph output prints one JSON object per line plus a summary line; pass
 
 ### Embedding providers
 
-By default, vectors come from a local
-[fastembed](https://github.com/Anush008/fastembed-js) model
-(`BAAI/bge-small-en-v1.5`, 384 dimensions) — free, and no network calls after
-the first run, which downloads the model to
-`~/.cache/semantic-layer/fastembed` (override with the
-`SEMANTIC_LAYER_FASTEMBED_CACHE_DIR` env var or `search.embedding.cacheDir`).
+By default, vectors come from a local model run with
+[transformers.js](https://huggingface.co/docs/transformers.js)
+(`nomic-ai/nomic-embed-text-v1.5`, Matryoshka-truncated to 512 dimensions) —
+free, and no network calls after the first run, which downloads the quantized
+model (~130 MB) to `~/.cache/semantic-layer/models` (override with the
+`SEMANTIC_LAYER_MODEL_CACHE_DIR` env var or `search.embedding.cacheDir`).
 
 ```yaml
 search:
   embedding:
-    provider: fastembed
+    provider: local
 ```
 
 Set `provider: gemini` to use Google's hosted embeddings instead — useful when
@@ -443,9 +443,10 @@ LadybugDB ships a native module that requires glibc + OpenSSL 3. On
 `node:*-alpine` or similar, only the non-database commands work: `check`,
 `init`, and `refine stage|list|reject` load no native code at all. `index`
 (unless `search.enabled: false`), `search`, `graph`, and `refine promote`
-(with `search.enabled: true`) need a glibc-based image. `fastembed` is an
-optional dependency with the same musl limitation, but it degrades gracefully:
-on platforms where its native bindings fail to load, `index` builds an
+(with `search.enabled: true`) need a glibc-based image. The local embedding
+runtime (`@huggingface/transformers`, on `onnxruntime-node`) is an optional
+dependency with the same musl limitation, but it degrades gracefully: on
+platforms where its native bindings fail to load, `index` builds an
 FTS-only index instead of failing — it prints a warning, `search --mode fts`
 keeps working, and `--mode vector`/`--mode hybrid` fail with a message
 pointing at the fix rather than a native-loader stack trace. To get local
@@ -518,5 +519,5 @@ Exports:
 - `runRefinementReject`
 - `runSearch`
 - `runGraph`
-- `FastEmbedUnavailableError`
+- `LocalEmbedderUnavailableError`
 - TypeScript types for config, notes, schemas, search/graph results, and check results

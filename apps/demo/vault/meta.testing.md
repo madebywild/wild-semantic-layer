@@ -29,8 +29,9 @@ Four vitest projects cover the package, from fastest to most isolated:
   consumer workspaces: a monorepo TypeScript service with custom code-ref
   sidecar output, a simple JavaScript consumer refinement lifecycle, and
   drift or migration failures that must not overwrite generated indexes.
-  The container has no working fastembed, which doubles as coverage for the
-  FTS-only degradation described in [[meta.search]].
+  The container has no working local embedding runtime (onnxruntime-node),
+  which doubles as coverage for the FTS-only degradation described in
+  [[meta.search]].
 
 LadybugDB 0.18.2 cannot safely close-then-reopen the same database path
 within one process (the close leaves native background state that corrupts

@@ -4,7 +4,7 @@ import {
   createEmbedder,
   describeConfiguredEmbedder,
   type Embedder,
-  FastEmbedUnavailableError,
+  LocalEmbedderUnavailableError,
 } from "../../search/embedder.js";
 import { candidateNoteIdsSinceSha, getHeadSha, isAncestorOfHead } from "../../search/git-diff.js";
 import type {
@@ -81,7 +81,7 @@ export async function querySearch(
         // Leave embedder undefined and let buildIndex's own resolution hit (and gracefully degrade
         // to FTS-only from) this same unavailability below, instead of failing the whole query over
         // a platform limitation the indexer already knows how to handle.
-        if (!(error instanceof FastEmbedUnavailableError)) throw error;
+        if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
       }
     }
 

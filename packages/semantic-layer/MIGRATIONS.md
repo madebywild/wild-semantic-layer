@@ -99,21 +99,23 @@ search:
     strategy: heading
     maxChunkChars: 2000
   embedding:
-    provider: fastembed
+    provider: local
   defaultMode: hybrid
   defaultLimit: 10
 ```
 
 ### New / changed dependencies
 
-`@ladybugdb/core` is a new runtime dependency. `fastembed` remains an optional
-dependency for local embeddings.
+`@ladybugdb/core` is a new runtime dependency. `@huggingface/transformers`
+(transformers.js, ONNX Runtime backend) is an optional dependency for local
+embeddings; the default local model is `nomic-ai/nomic-embed-text-v1.5`,
+Matryoshka-truncated to 512 dimensions.
 
 ### New environment variables
 
-- `SEMANTIC_LAYER_FASTEMBED_CACHE_DIR` — overrides where the local fastembed
-  model is cached (default `$XDG_CACHE_HOME/semantic-layer/fastembed`, or
-  `~/.cache/semantic-layer/fastembed` when `XDG_CACHE_HOME` is unset).
+- `SEMANTIC_LAYER_MODEL_CACHE_DIR` — overrides where the local embedding
+  model is cached (default `$XDG_CACHE_HOME/semantic-layer/models`, or
+  `~/.cache/semantic-layer/models` when `XDG_CACHE_HOME` is unset).
 - `SEMANTIC_LAYER_GEMINI_API_KEY` (falls back to `GEMINI_API_KEY`) — API key
   for the optional hosted `gemini` embedding provider.
 
@@ -122,11 +124,12 @@ dependency for local embeddings.
 LadybugDB itself is a native module and requires glibc + OpenSSL 3, so on
 `node:*-alpine` or similar only the non-database commands work: `check`,
 `init`, and `refine stage|list|reject`. `index`, `search`, `graph`, and
-`refine promote` need a glibc-based image. Independently, `fastembed` has no
-musl build either — on glibc platforms where the fastembed native bindings
-fail to load, `index` degrades to an FTS-only index instead of failing
-(`search --mode fts` keeps working; `--mode vector`/`--mode hybrid` fail with
-an actionable message), or set `search.embedding.provider: gemini`.
+`refine promote` need a glibc-based image. Independently, the local embedding
+runtime (`onnxruntime-node`, via `@huggingface/transformers`) has no musl
+build either — on platforms where its native bindings fail to load, `index`
+degrades to an FTS-only index instead of failing (`search --mode fts` keeps
+working; `--mode vector`/`--mode hybrid` fail with an actionable message), or
+set `search.embedding.provider: gemini`.
 
 ## 0.3.0
 

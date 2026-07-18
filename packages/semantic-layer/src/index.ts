@@ -13,7 +13,7 @@ export {
   runRefinementStage,
 } from "./refinements.js";
 export type { Embedder } from "./search/embedder.js";
-export { FastEmbedUnavailableError } from "./search/embedder.js";
+export { LocalEmbedderUnavailableError } from "./search/embedder.js";
 export type { GraphCommandResult } from "./commands/graph.js";
 export type {
   AncestorResult,

@@ -392,7 +392,7 @@ describe("querySearch — staleness and rebuild", () => {
 
       // No deps.embedder this time, and fts mode needs none at all, so the staleness check falls
       // back to comparing the meta's recorded identity ("fake:8") against what the live config
-      // would actually resolve to (fastembed's default) — they don't match.
+      // would actually resolve to (the local provider's default) — they don't match.
       const result = await querySearch(config, { query: "alpha", mode: "fts" });
       expect(result.stale).toBe(true);
     } finally {

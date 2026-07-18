@@ -20,9 +20,11 @@ sidecar live under `vault/.semantic-layer/` and are gitignored;
 `search-index --full` regenerates them from scratch, and a plain
 `search-index` rebuilds incrementally.
 
-The default local embedder (`fastembed`) has no musl/Alpine build, so
-`search-index` degrades to an FTS-only index there instead of failing. See
-[[meta.testing]] for how the containerized suites cover this.
+The default local embedder runs `nomic-ai/nomic-embed-text-v1.5` (truncated to
+512 dimensions) via `@huggingface/transformers` on `onnxruntime-node`, which
+has no musl/Alpine build, so `search-index` degrades to an FTS-only index
+there instead of failing. See [[meta.testing]] for how the containerized
+suites cover this.
 
 Long-lived processes embedding the library keep one pooled database handle
 open per process (see [[meta.testing]] for why); the on-disk file stays

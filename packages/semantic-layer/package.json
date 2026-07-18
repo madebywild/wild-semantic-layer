@@ -37,7 +37,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap --external fastembed",
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap --external @huggingface/transformers",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit"
   },
@@ -53,7 +53,7 @@
     "tsup": "8.5.1"
   },
   "optionalDependencies": {
-    "fastembed": "2.1.0"
+    "@huggingface/transformers": "4.2.0"
   },
   "engines": {
     "node": ">=20"

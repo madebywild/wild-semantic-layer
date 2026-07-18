@@ -6,35 +6,36 @@ import type { SearchEmbeddingProviderConfig } from "../types.js";
 
 /**
  * Turns text into vectors. `embedDocuments`/`embedQuery` are separate (not one generic `embed`)
- * because BGE-family models and Gemini's embedding API are both asymmetric: passages and queries
- * are embedded differently, and collapsing this would silently degrade retrieval quality.
+ * because the local nomic model and Gemini's embedding API are both asymmetric: passages and
+ * queries are embedded differently, and collapsing this would silently degrade retrieval quality.
  */
 export type Embedder = {
   readonly id: string;
   readonly dimensions: number;
   embedDocuments(texts: string[]): Promise<number[][]>;
   embedQuery(text: string): Promise<number[]>;
-  /** Optional cleanup hook. FastEmbed embedders release the native ONNX session. */
+  /** Optional cleanup hook. Local embedders release the native ONNX pipeline. */
   close?(): Promise<void>;
 };
 
-export const FASTEMBED_UNAVAILABLE_MESSAGE =
-  "fastembed is unavailable on this platform — install a build toolchain, use a glibc-based " +
-  "image, or set `search.embedding.provider: gemini` in your semantic-layer config.";
+export const LOCAL_EMBEDDER_UNAVAILABLE_MESSAGE =
+  "the local embedding runtime (@huggingface/transformers) is unavailable on this platform — " +
+  "install a build toolchain, use a glibc-based image, or set `search.embedding.provider: " +
+  "gemini` in your semantic-layer config.";
 
-/** Thrown when the optional `fastembed` dependency fails to load (e.g. on musl/Alpine). */
-export class FastEmbedUnavailableError extends Error {
+/** Thrown when the optional `@huggingface/transformers` dependency fails to load (e.g. on musl/Alpine). */
+export class LocalEmbedderUnavailableError extends Error {
   constructor(cause: unknown) {
-    super(FASTEMBED_UNAVAILABLE_MESSAGE);
-    this.name = "FastEmbedUnavailableError";
+    super(LOCAL_EMBEDDER_UNAVAILABLE_MESSAGE);
+    this.name = "LocalEmbedderUnavailableError";
     this.cause = cause;
   }
 }
 
-/** Builds the configured embedder, lazily loading `fastembed` only when that provider is active. */
+/** Builds the configured embedder, lazily loading the local runtime only when that provider is active. */
 export async function createEmbedder(config: SearchEmbeddingProviderConfig): Promise<Embedder> {
   if (config.provider === "gemini") return createGeminiEmbedder(config);
-  return createLocalFastEmbedEmbedder(config);
+  return createLocalEmbedder(config);
 }
 
 /**
@@ -52,108 +53,113 @@ export function describeConfiguredEmbedder(config: SearchEmbeddingProviderConfig
       dimensions: DEFAULT_GEMINI_DIMENSIONS,
     };
   }
-  const model = config.model ?? DEFAULT_FASTEMBED_MODEL;
+  const model = config.model ?? DEFAULT_LOCAL_MODEL;
   return {
-    id: `fastembed:${model}`,
-    dimensions:
-      FASTEMBED_MODEL_DIMENSIONS[model] ??
-      FASTEMBED_MODEL_DIMENSIONS[DEFAULT_FASTEMBED_MODEL] ??
-      384,
+    id: `local:${model}`,
+    dimensions: LOCAL_MODEL_DIMENSIONS[model] ?? LOCAL_MODEL_DIMENSIONS[DEFAULT_LOCAL_MODEL] ?? 512,
   };
 }
 
-const FASTEMBED_MODEL_DIMENSIONS: Record<string, number> = {
-  "fast-all-MiniLM-L6-v2": 384,
-  "fast-bge-base-en": 768,
-  "fast-bge-base-en-v1.5": 768,
-  "fast-bge-small-en": 384,
-  "fast-bge-small-en-v1.5": 384,
-  "fast-bge-small-zh-v1.5": 512,
-  "fast-multilingual-e5-large": 1024,
+/**
+ * Effective dimensions per supported local model, after any truncation applied below. Only
+ * models listed here are accepted: `describeConfiguredEmbedder` must know the dimensions without
+ * loading the model, and truncation is only sound for Matryoshka-trained models.
+ */
+const LOCAL_MODEL_DIMENSIONS: Record<string, number> = {
+  // nomic-embed-text-v1.5 natively emits 768 dims; it is Matryoshka-trained, so truncating to a
+  // trained breakpoint (768/512/256/128/64) + renormalizing keeps retrieval quality nearly intact.
+  "nomic-ai/nomic-embed-text-v1.5": 512,
 };
 
-const DEFAULT_FASTEMBED_MODEL = "fast-bge-small-en-v1.5";
+const DEFAULT_LOCAL_MODEL = "nomic-ai/nomic-embed-text-v1.5";
 
-async function createLocalFastEmbedEmbedder(
-  config: Extract<SearchEmbeddingProviderConfig, { provider: "fastembed" }>,
+/**
+ * nomic-embed-text-v1.5 is asymmetric: it expects a task prefix on every input. These map onto
+ * the Embedder split — documents at index time, queries at search time.
+ */
+const LOCAL_DOCUMENT_PREFIX = "search_document: ";
+const LOCAL_QUERY_PREFIX = "search_query: ";
+
+async function createLocalEmbedder(
+  config: Extract<SearchEmbeddingProviderConfig, { provider: "local" }>,
 ): Promise<Embedder> {
-  let fastembed: typeof import("fastembed");
+  const model = resolveLocalModel(config.model);
+  const dimensions = LOCAL_MODEL_DIMENSIONS[model];
+  if (dimensions === undefined) throw new Error(`local model "${model}" has no known dimensions`);
+
+  let transformers: typeof import("@huggingface/transformers");
+  let extractor: import("@huggingface/transformers").FeatureExtractionPipeline;
+  const cacheDir = resolveLocalCacheDir(config.cacheDir);
   try {
-    fastembed = await import("fastembed");
+    transformers = await import("@huggingface/transformers");
+    // transformers.js' own cache setup expects the directory to already exist (it doesn't mkdir
+    // recursively), so a fresh machine with no ~/.cache/semantic-layer yet fails otherwise.
+    mkdirSync(cacheDir, { recursive: true });
+    transformers.env.cacheDir = cacheDir;
+
+    console.error(
+      `semantic-layer: loading local embedding model "${model}" (first run downloads it to ` +
+        `${cacheDir}; cached on disk afterward).`,
+    );
+    // Pipeline creation is inside the try too: onnxruntime-node's native binding can fail to
+    // load here (not just at import) on musl/Alpine, and that must hit the same FTS-only degrade.
+    extractor = await transformers.pipeline("feature-extraction", model, { dtype: "q8" });
   } catch (cause) {
-    throw new FastEmbedUnavailableError(cause);
+    throw new LocalEmbedderUnavailableError(cause);
   }
 
-  const { FlagEmbedding, EmbeddingModel } = fastembed;
-  const model = resolveFastEmbedModel(config.model, EmbeddingModel);
-  const dimensions =
-    FASTEMBED_MODEL_DIMENSIONS[model] ?? FASTEMBED_MODEL_DIMENSIONS[DEFAULT_FASTEMBED_MODEL];
-  if (dimensions === undefined)
-    throw new Error(`fastembed model "${model}" has no known dimensions`);
-  const cacheDir = resolveFastEmbedCacheDir(config.cacheDir);
-  // fastembed's own cache setup expects the directory to already exist (it doesn't mkdir
-  // recursively), so a fresh machine with no ~/.cache/semantic-layer yet fails otherwise.
-  mkdirSync(cacheDir, { recursive: true });
-
-  console.error(
-    `semantic-layer: loading local fastembed model "${model}" (first run downloads it to ` +
-      `${cacheDir}; cached on disk afterward).`,
-  );
-  const instance = await FlagEmbedding.init({ model, cacheDir });
+  const embed = async (texts: string[]): Promise<number[][]> => {
+    if (texts.length === 0) return [];
+    const output = await extractor(texts, { pooling: "mean", normalize: true });
+    return (output.tolist() as number[][]).map((vector) =>
+      truncateAndRenormalize(vector, dimensions),
+    );
+  };
 
   return {
-    id: `fastembed:${model}`,
+    id: `local:${model}`,
     dimensions,
-    embedDocuments: (texts) => collectBatches(instance.passageEmbed(texts)),
-    // fastembed returns Float32Array vectors; LadybugDB expects plain arrays, so every vector must
-    // be converted before insertion or query.
-    embedQuery: async (text) => Array.from(await instance.queryEmbed(text)),
+    embedDocuments: (texts) => embed(texts.map((text) => `${LOCAL_DOCUMENT_PREFIX}${text}`)),
+    embedQuery: async (text) => {
+      const [vector] = await embed([`${LOCAL_QUERY_PREFIX}${text}`]);
+      if (!vector) throw new Error("local embedder did not return a vector");
+      return vector;
+    },
     close: async () => {
-      // Releasing the ONNX session prevents the uncaught native mutex error that fastembed's
-      // cleanup sometimes throws on process exit.
-      const session = (instance as unknown as { session?: { release(): Promise<void> } }).session;
-      await session?.release();
+      // Releasing the ONNX pipeline frees the native session before process exit.
+      await (extractor as { dispose?: () => Promise<void> }).dispose?.();
     },
   };
 }
 
-async function collectBatches(
-  batches: AsyncGenerator<number[][], void, unknown>,
-): Promise<number[][]> {
-  const vectors: number[][] = [];
-  for await (const batch of batches) {
-    for (const vector of batch) vectors.push(Array.from(vector));
-  }
-  return vectors;
+/**
+ * Truncating a Matryoshka-trained embedding to a lower dimension requires renormalizing: the
+ * model is trained so each prefix is unit-norm on its own, and vector search assumes unit vectors.
+ */
+function truncateAndRenormalize(vector: number[], dimensions: number): number[] {
+  if (vector.length <= dimensions) return vector;
+  const truncated = vector.slice(0, dimensions);
+  const norm = Math.hypot(...truncated);
+  return norm === 0 ? truncated : truncated.map((value) => value / norm);
 }
 
-type FastEmbedStandardModel = Exclude<
-  import("fastembed").EmbeddingModel,
-  import("fastembed").EmbeddingModel.CUSTOM
->;
-
-function resolveFastEmbedModel(
-  model: string | undefined,
-  EmbeddingModel: typeof import("fastembed").EmbeddingModel,
-): FastEmbedStandardModel {
-  const supported = Object.values(EmbeddingModel).filter(
-    (value): value is FastEmbedStandardModel => value !== EmbeddingModel.CUSTOM,
-  );
-  if (!model) return EmbeddingModel.BGESmallENV15;
-  const match = supported.find((value) => value === model);
-  if (!match) {
-    throw new Error(`Unknown fastembed model "${model}". Supported: ${supported.join(", ")}.`);
+function resolveLocalModel(model: string | undefined): string {
+  if (!model) return DEFAULT_LOCAL_MODEL;
+  if (!(model in LOCAL_MODEL_DIMENSIONS)) {
+    throw new Error(
+      `Unknown local embedding model "${model}". Supported: ${Object.keys(LOCAL_MODEL_DIMENSIONS).join(", ")}.`,
+    );
   }
-  return match;
+  return model;
 }
 
-function resolveFastEmbedCacheDir(configCacheDir: string | undefined): string {
+function resolveLocalCacheDir(configCacheDir: string | undefined): string {
   if (configCacheDir) return configCacheDir;
-  if (process.env.SEMANTIC_LAYER_FASTEMBED_CACHE_DIR) {
-    return process.env.SEMANTIC_LAYER_FASTEMBED_CACHE_DIR;
+  if (process.env.SEMANTIC_LAYER_MODEL_CACHE_DIR) {
+    return process.env.SEMANTIC_LAYER_MODEL_CACHE_DIR;
   }
   const base = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
-  return join(base, "semantic-layer", "fastembed");
+  return join(base, "semantic-layer", "models");
 }
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";

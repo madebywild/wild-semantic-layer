@@ -16,7 +16,11 @@ import { extractTagEdges } from "../extract/tags.js";
 import type { WikilinkEdge } from "../extract/wikilinks.js";
 import { extractWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
-import { createEmbedder, type Embedder, FastEmbedUnavailableError } from "../search/embedder.js";
+import {
+  createEmbedder,
+  type Embedder,
+  LocalEmbedderUnavailableError,
+} from "../search/embedder.js";
 import { getHeadSha } from "../search/git-diff.js";
 import type { BuildIndexResult, Note, ResolvedConfig } from "../types.js";
 import { readVault, type Vault } from "../vault.js";
@@ -135,7 +139,7 @@ async function resolveEmbedder(
   try {
     return { embedder: await createEmbedder(config.search.embedding), ftsOnly: false };
   } catch (error) {
-    if (error instanceof FastEmbedUnavailableError) {
+    if (error instanceof LocalEmbedderUnavailableError) {
       if (meta?.embedding.kind === "embedder") {
         throw new Error(
           `semantic-layer index: ${error.message} The existing index has embeddings built with ` +

@@ -29,7 +29,7 @@ const DEFAULT_CONFIG: SemanticLayerConfig = {
 export const DEFAULT_SEARCH_CONFIG: ResolvedSearchConfig = {
   enabled: true,
   chunking: { strategy: "heading", maxChunkChars: 2000 },
-  embedding: { provider: "fastembed" },
+  embedding: { provider: "local" },
   defaultMode: "hybrid",
   defaultLimit: 10,
 };
@@ -132,10 +132,25 @@ function mergeSearchConfig(
     throw new Error(`search.defaultLimit must be a positive integer, got ${defaultLimit}`);
   }
 
+  const embedding = override.embedding ?? base.embedding;
+  if (embedding.provider !== "local" && embedding.provider !== "gemini") {
+    // "fastembed" was the pre-0.4 name for the local provider; call it out explicitly so old
+    // config files fail with a rename hint instead of a bare enum error.
+    const hint =
+      (embedding as { provider: string }).provider === "fastembed"
+        ? ' ("fastembed" was renamed to "local")'
+        : "";
+    throw new Error(
+      `search.embedding.provider must be "local" or "gemini", got ${JSON.stringify(
+        (embedding as { provider: string }).provider,
+      )}${hint}`,
+    );
+  }
+
   return {
     enabled: override.enabled ?? base.enabled,
     chunking,
-    embedding: override.embedding ?? base.embedding,
+    embedding,
     defaultMode,
     defaultLimit,
   };
