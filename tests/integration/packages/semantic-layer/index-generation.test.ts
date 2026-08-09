@@ -53,6 +53,28 @@ describe("index generation (integration)", () => {
     }
   });
 
+  it("includes per-note size estimates and search guidance", async () => {
+    // 399-char body: ceil(399/4) = ceil(400/4) = 100, so the estimate is stable
+    // regardless of how gray-matter treats the leading newline of the body.
+    const tv = createTempVault({
+      "vault/root.md": validNoteMd("root", "Root", "Entry point.", "active", "x".repeat(399)),
+      "vault/root.schema.yml":
+        "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+    });
+
+    try {
+      const result = await runIndex({ cwd: tv.dir, embedder: createFakeEmbedder() });
+      const content = readFileSync(result.outFile, "utf8");
+
+      expect(content).toContain("rough token estimates");
+      expect(content).toContain('`semantic-layer search "<query>" --json`');
+      const rootLine = content.split("\n").find((l) => l.includes("**root**"));
+      expect(rootLine).toContain("(~100 tok)");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
   it("updates existing HIERARCHY.md on second run", async () => {
     const tv = createTempVault({
       "vault/root.md": validNoteMd("root"),

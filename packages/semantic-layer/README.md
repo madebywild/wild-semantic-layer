@@ -53,13 +53,18 @@ Pre task:
 
 - If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
 - Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
-  to the task.
+  to the task. Each row carries a rough token estimate; for large notes, prefer
+  `semantic-layer search "<query>" --json` to load only the matching section
+  instead of the whole note.
 - Follow wikilinks and `code_refs` from relevant notes before changing code.
 
 Post task:
 
 - Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
   behavior, API, architecture, or operational knowledge changed by the task.
+- Split notes that have grown large (a few hundred lines or more) into dotted
+  sub-notes (for example `system.architecture.auth.md`) interlinked with
+  wikilinks, keeping the parent note as a short overview that links down.
 - Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
   wikilinks, schema children, and configured external invariants.
 - Stage significant non-assistant inputs with `semantic-layer refine stage` when
@@ -199,6 +204,25 @@ tags: [auth]
 `id` must match the filename without `.md`. A note named `auth.flow.md` requires
 its parent `auth.md`. The vault requires `root.md`.
 
+### Wikilinks
+
+Notes link to other notes with Dendron-style wikilinks in the Markdown body:
+
+- `[[auth.flow]]` links to the note with id `auth.flow`.
+- `[[the login flow|auth.flow]]` renders an alias; the target is the part after
+  the pipe (note: this is the reverse of Obsidian's `[[target|alias]]`).
+- `[[auth.flow#token refresh]]` links to a heading inside the target note.
+
+`semantic-layer check` fails on wikilinks to unknown notes or missing headings;
+`semantic-layer graph links <id>` / `backlinks <id>` / `orphans` / `cycles`
+query the link graph. Plain Markdown links (`[text](auth.flow.md)`) are not
+followed.
+
+Use wikilinks to keep individual notes small: when a note grows large, split it
+into dotted sub-notes (`auth.flow.refresh.md`) and link them from the parent, so
+agents can load the overview first and follow links only into the sections the
+task needs.
+
 ### Code References
 
 `code_refs` point at real TypeScript or JavaScript symbols. The minimal shape is
@@ -315,7 +339,11 @@ schemas:
 `semantic-layer index` writes `vault/HIERARCHY.md`,
 `vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index at
 `vault/.semantic-layer/vault.lbug` (plus `vault.lbug.meta.json`). Agents should
-read `HIERARCHY.md` first, then load only the notes relevant to the task.
+read `HIERARCHY.md` first, then load only the notes relevant to the task. Each
+row ends with a rough token estimate (chars/4 of the note body), so agents can
+see which notes are expensive before opening them; for large notes,
+`semantic-layer search "<query>" --json` returns section-level chunks instead of
+the whole note.
 
 The code refs sidecar is generated JSON:
 

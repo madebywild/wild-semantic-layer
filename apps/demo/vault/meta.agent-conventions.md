@@ -5,7 +5,7 @@ desc: How agents should work with this demo vault.
 status: active
 owner: tom@wild.as
 audience: [agents]
-last_verified: 2026-07-15
+last_verified: 2026-08-09
 ttl_days: 365
 tags: [meta, agents]
 layer: demo
@@ -13,7 +13,11 @@ layer: demo
 
 # Agent conventions
 
-Read HIERARCHY.md first. Load only the notes needed for the task. Run
+Read HIERARCHY.md first; its per-row token estimates show which notes are
+expensive before you open them. Load only the notes needed for the task, and for
+large notes prefer `semantic-layer search "<query>" --json` to pull just the
+matching section. Keep notes small: split oversized notes into dotted sub-notes
+interlinked with wikilinks. Run
 `semantic-layer check` and `semantic-layer index` after documentation changes.
 Use [[meta.testing]] for package-level blackbox e2e coverage expectations. On a
 larger vault, `semantic-layer search "<query>"` can help find relevant notes

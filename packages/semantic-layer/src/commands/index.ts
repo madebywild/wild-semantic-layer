@@ -95,10 +95,15 @@ function writeHierarchyMd(config: ResolvedConfig, notes: Map<string, Note>): str
     "",
     "Agents: read this file first, then load notes by id.",
     "",
+    "Sizes are rough token estimates (chars/4). For large notes, prefer",
+    '`semantic-layer search "<query>" --json` to load only the matching section.',
+    "",
     ...rows.map((note) => {
       const depth = note.id === "root" ? 0 : note.id.split(".").length - 1;
       const status = note.fm.status === "active" ? "" : ` (${note.fm.status})`;
-      return `${"  ".repeat(depth)}- **${note.id}**${status} - ${note.fm.title}. ${note.fm.desc}`;
+      // Rough token estimate from body length (frontmatter excluded): ~4 chars per token.
+      const size = `(~${Math.ceil(note.body.length / 4)} tok)`;
+      return `${"  ".repeat(depth)}- **${note.id}**${status} - ${note.fm.title}. ${note.fm.desc} ${size}`;
     }),
   ];
   mkdirSync(dirname(outFile), { recursive: true });

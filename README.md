@@ -30,13 +30,18 @@ Pre task:
 
 - If `vault/HIERARCHY.md` is missing or stale, run `semantic-layer index`.
 - Read `vault/HIERARCHY.md` first, then open only the `vault/*.md` notes relevant
-  to the task.
+  to the task. Each row carries a rough token estimate; for large notes, prefer
+  `semantic-layer search "<query>" --json` to load only the matching section
+  instead of the whole note.
 - Follow wikilinks and `code_refs` from relevant notes before changing code.
 
 Post task:
 
 - Create, update, or delete `vault/*.md` notes and `*.schema.yml` files for any
   behavior, API, architecture, or operational knowledge changed by the task.
+- Split notes that have grown large (a few hundred lines or more) into dotted
+  sub-notes (for example `system.architecture.auth.md`) interlinked with
+  wikilinks, keeping the parent note as a short overview that links down.
 - Keep frontmatter current, including `last_verified`, `ttl_days`, `code_refs`,
   wikilinks, schema children, and configured external invariants.
 - Stage significant non-assistant inputs with `semantic-layer refine stage` when
