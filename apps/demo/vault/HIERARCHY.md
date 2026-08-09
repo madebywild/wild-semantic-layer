@@ -4,10 +4,13 @@
 
 Agents: read this file first, then load notes by id.
 
-- **root** - Demo docs root. Entry point for the demo semantic layer vault.
-- **demo** - Demo application. Live example of a consumer app using the semantic layer package.
-  - **demo.runtime** - Runtime contract. Runtime assumptions for the demo app.
-- **meta** - Metadata. Meta notes for contributors and agents.
-  - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault.
-  - **meta.search** - Search index. Local full-text + vector search over this vault.
-  - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package.
+Sizes are rough token estimates (chars/4). For large notes, prefer
+`semantic-layer search "<query>" --json` to load only the matching section.
+
+- **root** - Demo docs root. Entry point for the demo semantic layer vault. (~24 tok)
+- **demo** - Demo application. Live example of a consumer app using the semantic layer package. (~63 tok)
+  - **demo.runtime** - Runtime contract. Runtime assumptions for the demo app. (~36 tok)
+- **meta** - Metadata. Meta notes for contributors and agents. (~20 tok)
+  - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault. (~224 tok)
+  - **meta.search** - Search index. Local full-text + vector search over this vault. (~417 tok)
+  - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package. (~415 tok)
