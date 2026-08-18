@@ -250,12 +250,12 @@ function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: nu
 
 /**
  * The CLI accepts ordinary user text, not raw FTS5 syntax. Quote each Unicode word so punctuation,
- * hyphens, operators, and unmatched quotes cannot change the MATCH grammar. Adjacent quoted terms
- * retain FTS5's default implicit-AND behavior without forcing an exact phrase.
+ * hyphens, operators, and unmatched quotes cannot change the MATCH grammar. Join tokens with OR
+ * to retain broad natural-language retrieval instead of requiring every query word to occur.
  */
 function ftsTerm(query: string): string | undefined {
   const tokens = query.match(/[\p{L}\p{N}_]+/gu);
-  return tokens?.map((token) => `"${token}"`).join(" ") || undefined;
+  return tokens?.map((token) => `"${token}"`).join(" OR ") || undefined;
 }
 
 function getVectorHits(

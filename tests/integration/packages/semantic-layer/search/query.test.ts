@@ -119,9 +119,15 @@ describe("querySearch — modes", () => {
     try {
       const embedder = createFakeEmbedder();
       await buildIndex(config, {}, { embedder });
-      await expect(
-        querySearch(config, { query: 'widgets: "unmatched', mode: "fts" }, { embedder }),
-      ).resolves.toMatchObject({ mode: "fts" });
+      const result = await querySearch(
+        config,
+        { query: 'widgets: "unmatched', mode: "fts" },
+        { embedder },
+      );
+      expect(result.mode).toBe("fts");
+      // Natural-language tokens are safely OR-composed: punctuation and an absent second token
+      // must not make the relevant first-token match disappear.
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
     } finally {
       await cleanup(tv);
     }

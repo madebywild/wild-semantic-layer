@@ -18,7 +18,7 @@ import {
 function vault() {
   return createTempVault({
     "vault/root.md": noteMarkdown({ id: "root", body: "# Root\n\nbase text\n" }),
-    "vault/alpha.md": noteMarkdown({ id: "alpha", body: "# Alpha\n\nold-token\n" }),
+    "vault/alpha.md": noteMarkdown({ id: "alpha", body: "# Alpha\n\noldtoken\n" }),
     "vault/root.schema.yml":
       "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
   });
@@ -34,7 +34,7 @@ describe("incremental SQLite rebuild", () => {
 
       writeFileSync(
         join(tv.vaultDir, "beta.md"),
-        noteMarkdown({ id: "beta", body: "# Beta\n\nadded-token\n" }),
+        noteMarkdown({ id: "beta", body: "# Beta\n\naddedtoken\n" }),
       );
       writeFileSync(
         join(tv.vaultDir, "root.schema.yml"),
@@ -45,26 +45,26 @@ describe("incremental SQLite rebuild", () => {
         notesIndexed: 1,
       });
       expect(
-        (await querySearch(config, { query: "added-token", mode: "fts" }, { embedder })).hits.map(
+        (await querySearch(config, { query: "addedtoken", mode: "fts" }, { embedder })).hits.map(
           (hit) => hit.noteId,
         ),
       ).toContain("beta");
 
       writeFileSync(
         join(tv.vaultDir, "alpha.md"),
-        noteMarkdown({ id: "alpha", body: "# Alpha\n\nnew-token\n" }),
+        noteMarkdown({ id: "alpha", body: "# Alpha\n\nnewtoken\n" }),
       );
       expect(await buildIndex(config, {}, { embedder })).toMatchObject({
         mode: "incremental",
         notesIndexed: 1,
       });
       expect(
-        (await querySearch(config, { query: "new-token", mode: "fts" }, { embedder })).hits.map(
+        (await querySearch(config, { query: "newtoken", mode: "fts" }, { embedder })).hits.map(
           (hit) => hit.noteId,
         ),
       ).toContain("alpha");
       expect(
-        (await querySearch(config, { query: "old-token", mode: "fts" }, { embedder })).hits,
+        (await querySearch(config, { query: "oldtoken", mode: "fts" }, { embedder })).hits,
       ).toHaveLength(0);
 
       unlinkSync(join(tv.vaultDir, "beta.md"));
@@ -77,7 +77,7 @@ describe("incremental SQLite rebuild", () => {
         notesRemoved: 1,
       });
       expect(
-        (await querySearch(config, { query: "added-token", mode: "fts" }, { embedder })).hits,
+        (await querySearch(config, { query: "addedtoken", mode: "fts" }, { embedder })).hits,
       ).toHaveLength(0);
     } finally {
       tv.cleanup();
@@ -108,7 +108,7 @@ describe("incremental SQLite rebuild", () => {
         (
           await querySearch(
             config,
-            { query: "old-token", mode: "fts" },
+            { query: "oldtoken", mode: "fts" },
             { embedder: createFakeEmbedder() },
           )
         ).hits.map((hit) => hit.noteId),
@@ -161,7 +161,7 @@ describe("incremental SQLite rebuild", () => {
           connection.prepare("SELECT search_text FROM chunks WHERE note_id = ?").all("alpha"),
         ).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ search_text: expect.stringContaining("old-token") }),
+            expect.objectContaining({ search_text: expect.stringContaining("oldtoken") }),
           ]),
         );
         expect(readIndexMeta(config, connection)?.noteContentHashes).toEqual(
