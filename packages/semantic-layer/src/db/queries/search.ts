@@ -241,7 +241,7 @@ function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: nu
          JOIN chunks c ON c.rowid = chunks_fts.rowid
          JOIN notes n ON n.id = c.note_id
         WHERE chunks_fts MATCH :term${where.length ? ` AND ${where.join(" AND ")}` : ""}
-        ORDER BY chunks_fts.rank, c.id
+        ORDER BY chunks_fts.rank
         LIMIT :limit`,
     )
     .all({ ...params, term, limit }) as Record<string, unknown>[];
