@@ -1,293 +1,117 @@
-import type { Connection } from "@ladybugdb/core";
-import { queryRows } from "./cypher.js";
+import type { SqliteConnection } from "./connection.js";
 
-export const SCHEMA_VERSION = 3;
-
+export const SCHEMA_VERSION = 4;
 export const DEFAULT_EMBEDDING_DIMENSIONS = 384;
-export const VECTOR_INDEX_NAME = "chunk_embedding_idx";
-/**
- * LadybugDB names FTS indexes after the indexed column when using CREATE_FTS_INDEX.
- * The indexed column is `searchText`, not `text`: LadybugDB 0.18.2's FTS tokenizer does not
- * treat newlines as token separators (tokens adjacent to line breaks fuse into unsearchable
- * compounds, e.g. "beta\ngamma"), and chunk text is full of newlines. `searchText` stores a
- * newline-normalized copy that is safe to index; `text` stays pristine for display.
- */
-export const FTS_INDEX_NAME = "searchText";
+export const FTS_INDEX_NAME = "chunks_fts";
 
-export type ColumnDef = {
-  name: string;
-  type: string;
-  pk?: boolean;
-};
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL,
+  owner TEXT NOT NULL, last_verified TEXT NOT NULL, ttl_days INTEGER NOT NULL, file TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chunks (
+  id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL, heading_path TEXT NOT NULL, text TEXT NOT NULL,
+  search_text TEXT NOT NULL, modality TEXT NOT NULL, embedding BLOB,
+  UNIQUE(note_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS chunks_note_id_idx ON chunks(note_id);
+CREATE TABLE IF NOT EXISTS headings (
+  id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL, text TEXT NOT NULL, level INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS headings_note_id_idx ON headings(note_id);
+CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS note_tags (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL REFERENCES tags(name) ON DELETE CASCADE,
+  PRIMARY KEY(note_id, tag)
+);
+CREATE TABLE IF NOT EXISTS audiences (name TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS note_audiences (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  audience TEXT NOT NULL REFERENCES audiences(name) ON DELETE CASCADE,
+  PRIMARY KEY(note_id, audience)
+);
+CREATE TABLE IF NOT EXISTS code_symbols (
+  id TEXT PRIMARY KEY, file TEXT NOT NULL, symbol TEXT NOT NULL, kind TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS note_code_references (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  code_symbol_id TEXT NOT NULL REFERENCES code_symbols(id) ON DELETE CASCADE,
+  PRIMARY KEY(note_id, code_symbol_id)
+);
+CREATE TABLE IF NOT EXISTS schemas (id TEXT PRIMARY KEY, title TEXT NOT NULL, namespace INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS schema_children (
+  schema_id TEXT NOT NULL REFERENCES schemas(id) ON DELETE CASCADE,
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  PRIMARY KEY(schema_id, note_id)
+);
+CREATE TABLE IF NOT EXISTS hierarchy_edges (
+  parent_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  child_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  PRIMARY KEY(parent_id, child_id)
+);
+CREATE TABLE IF NOT EXISTS links (
+  source_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  -- Empty string preserves an absent public anchor while making edge uniqueness total.
+  anchor TEXT NOT NULL DEFAULT '',
+  UNIQUE(source_id, target_id, anchor)
+);
+CREATE INDEX IF NOT EXISTS links_target_idx ON links(target_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+  search_text, content='chunks', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
+  INSERT INTO chunks_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+END;
+CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
+  INSERT INTO chunks_fts(chunks_fts, rowid, search_text)
+  VALUES ('delete', old.rowid, old.search_text);
+END;
+CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE OF search_text ON chunks BEGIN
+  INSERT INTO chunks_fts(chunks_fts, rowid, search_text)
+  VALUES ('delete', old.rowid, old.search_text);
+  INSERT INTO chunks_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+END;
+`;
 
-export type NodeTableDef = {
-  name: string;
-  columns: ColumnDef[];
-};
-
-export type RelTableDef = {
-  name: string;
-  from: string;
-  to: string;
-  columns?: ColumnDef[];
-};
-
-export type FtsIndexDef = {
-  table: string;
-  column: string;
-  propertyNames: string[];
-};
-
-export type GraphSchema = {
-  version: number;
-  nodeTables: NodeTableDef[];
-  relTables: RelTableDef[];
-  ftsIndexes: FtsIndexDef[];
-};
-
-export const GRAPH_SCHEMA: GraphSchema = {
-  version: SCHEMA_VERSION,
-  nodeTables: [
-    {
-      name: "Note",
-      columns: [
-        { name: "id", type: "STRING", pk: true },
-        { name: "title", type: "STRING" },
-        // `desc` is a reserved word in LadybugDB Cypher; backtick-escape it.
-        { name: "`desc`", type: "STRING" },
-        { name: "status", type: "STRING" },
-        { name: "owner", type: "STRING" },
-        { name: "lastVerified", type: "STRING" },
-        { name: "ttlDays", type: "INT64" },
-        { name: "file", type: "STRING" },
-      ],
-    },
-    {
-      name: "Chunk",
-      columns: [
-        { name: "id", type: "STRING", pk: true },
-        { name: "noteId", type: "STRING" },
-        { name: "chunkIndex", type: "INT64" },
-        { name: "headingPath", type: "STRING" },
-        { name: "text", type: "STRING" },
-        { name: "searchText", type: "STRING" },
-        { name: "modality", type: "STRING" },
-        {
-          name: "embedding",
-          type: `FLOAT[${DEFAULT_EMBEDDING_DIMENSIONS}]`,
-        },
-      ],
-    },
-    {
-      name: "Heading",
-      columns: [
-        { name: "id", type: "STRING", pk: true },
-        { name: "noteId", type: "STRING" },
-        { name: "slug", type: "STRING" },
-        { name: "text", type: "STRING" },
-        { name: "level", type: "INT64" },
-      ],
-    },
-    {
-      name: "Tag",
-      columns: [{ name: "name", type: "STRING", pk: true }],
-    },
-    {
-      name: "Audience",
-      columns: [{ name: "name", type: "STRING", pk: true }],
-    },
-    {
-      name: "CodeSymbol",
-      columns: [
-        { name: "id", type: "STRING", pk: true },
-        { name: "file", type: "STRING" },
-        { name: "symbol", type: "STRING" },
-        { name: "kind", type: "STRING" },
-      ],
-    },
-    {
-      name: "Schema",
-      columns: [
-        { name: "id", type: "STRING", pk: true },
-        { name: "title", type: "STRING" },
-        { name: "namespace", type: "BOOLEAN" },
-      ],
-    },
-  ],
-  relTables: [
-    { name: "HAS_CHILD", from: "Note", to: "Note" },
-    { name: "LINKS_TO", from: "Note", to: "Note", columns: [{ name: "anchor", type: "STRING" }] },
-    { name: "HAS_TAG", from: "Note", to: "Tag" },
-    { name: "HAS_AUDIENCE", from: "Note", to: "Audience" },
-    { name: "DECLARES_CODE_REF", from: "Note", to: "CodeSymbol" },
-    { name: "SCHEMA_CHILD", from: "Schema", to: "Note" },
-    { name: "CONTAINS_CHUNK", from: "Note", to: "Chunk" },
-    { name: "HAS_HEADING", from: "Note", to: "Heading" },
-  ],
-  ftsIndexes: [{ table: "Chunk", column: "searchText", propertyNames: ["searchText"] }],
-};
-
-function createNodeTableSql(table: NodeTableDef, dimensions?: number): string {
-  const columns = table.columns
-    .filter((column) => !(table.name === "Chunk" && column.name === "embedding"))
-    .map((column) => `${column.name} ${column.type}${column.pk ? " PRIMARY KEY" : ""}`);
-  if (table.name === "Chunk" && dimensions !== undefined) {
-    columns.push(`embedding FLOAT[${dimensions}]`);
-  }
-  return `CREATE NODE TABLE IF NOT EXISTS ${table.name}(${columns.join(", ")})`;
+export function createSchema(conn: SqliteConnection, _dimensions?: number): void {
+  conn.exec(SCHEMA_SQL);
 }
 
-function createRelTableSql(table: RelTableDef): string {
-  const propertyColumns = table.columns?.length
-    ? `, ${table.columns.map((column) => `${column.name} ${column.type}`).join(", ")}`
-    : "";
-  return `CREATE REL TABLE IF NOT EXISTS ${table.name}(FROM ${table.from} TO ${table.to}${propertyColumns})`;
+export function dropSchema(conn: SqliteConnection): void {
+  conn.exec(`
+    DROP TRIGGER IF EXISTS chunks_fts_insert;
+    DROP TRIGGER IF EXISTS chunks_fts_delete;
+    DROP TRIGGER IF EXISTS chunks_fts_update;
+    DROP TABLE IF EXISTS chunks_fts;
+    DROP TABLE IF EXISTS links;
+    DROP TABLE IF EXISTS hierarchy_edges;
+    DROP TABLE IF EXISTS schema_children;
+    DROP TABLE IF EXISTS schemas;
+    DROP TABLE IF EXISTS note_code_references;
+    DROP TABLE IF EXISTS code_symbols;
+    DROP TABLE IF EXISTS note_audiences;
+    DROP TABLE IF EXISTS audiences;
+    DROP TABLE IF EXISTS note_tags;
+    DROP TABLE IF EXISTS tags;
+    DROP TABLE IF EXISTS headings;
+    DROP TABLE IF EXISTS chunks;
+    DROP TABLE IF EXISTS notes;
+    DROP TABLE IF EXISTS metadata;
+  `);
 }
 
-async function indexExists(
-  conn: Connection,
-  tableName: string,
-  indexName: string,
-): Promise<boolean> {
-  const rows = await queryRows(conn, "CALL SHOW_INDEXES() RETURN *");
-  return rows.some((row) => row.table_name === tableName && row.index_name === indexName);
+/** FTS5's built-in consistency check; callers invoke it inside their write transaction. */
+export function validateFtsIntegrity(conn: SqliteConnection): void {
+  conn.prepare("INSERT INTO chunks_fts(chunks_fts, rank) VALUES ('integrity-check', 1)").run();
 }
 
-async function tableExists(conn: Connection, tableName: string): Promise<boolean> {
-  const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-  return rows.some((row) => row.name === tableName);
-}
-
-async function getEmbeddingDimension(conn: Connection): Promise<number | undefined> {
-  if (!(await tableExists(conn, "Chunk"))) return undefined;
-  const rows = await queryRows(conn, 'CALL table_info("Chunk") RETURN *');
-  const embeddingRow = rows.find((row) => row.name === "embedding");
-  if (!embeddingRow) return undefined;
-  const type = String(embeddingRow.type);
-  const match = type.match(/FLOAT\[(\d+)\]/);
-  return match?.[1] ? Number.parseInt(match[1], 10) : undefined;
-}
-
-export async function createSchema(conn: Connection, dimensions?: number): Promise<void> {
-  await conn.query("INSTALL FTS");
-  await conn.query("LOAD EXTENSION FTS");
-  await conn.query("INSTALL vector");
-  await conn.query("LOAD EXTENSION vector");
-
-  for (const table of GRAPH_SCHEMA.nodeTables) {
-    await conn.query(createNodeTableSql(table, dimensions));
-  }
-  for (const table of GRAPH_SCHEMA.relTables) {
-    await conn.query(createRelTableSql(table));
-  }
-
-  for (const fts of GRAPH_SCHEMA.ftsIndexes) {
-    if (await indexExists(conn, fts.table, FTS_INDEX_NAME)) continue;
-    if (!(await columnExists(conn, fts.table, fts.column))) {
-      // The table is from an older schema version and lacks the indexed column; the full
-      // rebuild that follows (triggered by the schema-version check) recreates it properly.
-      continue;
-    }
-    await createFtsIndex(conn, fts);
-  }
-}
-
-function createFtsIndexSql(fts: FtsIndexDef): string {
-  const properties = fts.propertyNames.map((name) => `"${name}"`).join(", ");
-  return `CALL CREATE_FTS_INDEX("${fts.table}", "${fts.column}", [${properties}])`;
-}
-
-async function createFtsIndex(conn: Connection, fts: FtsIndexDef): Promise<void> {
-  await conn.query(createFtsIndexSql(fts));
-}
-
-async function columnExists(
-  conn: Connection,
-  tableName: string,
-  columnName: string,
-): Promise<boolean> {
-  if (!(await tableExists(conn, tableName))) return false;
-  const rows = await queryRows(conn, `CALL table_info("${tableName}") RETURN *`);
-  return rows.some((row) => row.name === columnName);
-}
-
-/**
- * Rebuilds the FTS index from scratch over the current rows. LadybugDB 0.18.2's FTS delete
- * path is only consistent for rows that were indexed by the bulk CREATE_FTS_INDEX path — rows
- * indexed incrementally at insert time fail deletes with "term ... is missing during delete".
- * Incremental rebuilds DETACH DELETE chunks, so every build must end with the index in
- * bulk-built shape; this runs at the end of every build.
- */
-export async function repairFtsIndex(conn: Connection): Promise<void> {
-  for (const fts of GRAPH_SCHEMA.ftsIndexes) {
-    if (await indexExists(conn, fts.table, FTS_INDEX_NAME)) {
-      await conn.query(`CALL DROP_FTS_INDEX("${fts.table}", "${FTS_INDEX_NAME}")`);
-    }
-    await createFtsIndex(conn, fts);
-  }
-}
-
-export async function dropSchema(conn: Connection): Promise<void> {
-  // Drop indexes by their *discovered* names, not the current constants: a database left behind
-  // by an older schema version may name its indexes differently (e.g. FTS "text" vs
-  // "searchText"), and tables cannot be dropped while an index still references them.
-  const indexRows = await queryRows(conn, "CALL SHOW_INDEXES() RETURN *");
-  for (const row of indexRows) {
-    const table = String(row.table_name);
-    const name = String(row.index_name);
-    const type = String(row.index_type);
-    if (type === "FTS") {
-      await conn.query(`CALL DROP_FTS_INDEX("${table}", "${name}")`);
-    } else if (type === "HNSW") {
-      await conn.query(`CALL DROP_VECTOR_INDEX("${table}", "${name}")`);
-    }
-  }
-
-  for (const table of [...GRAPH_SCHEMA.relTables].reverse()) {
-    await conn.query(`DROP TABLE IF EXISTS ${table.name}`);
-  }
-
-  for (const table of [...GRAPH_SCHEMA.nodeTables].reverse()) {
-    await conn.query(`DROP TABLE IF EXISTS ${table.name}`);
-  }
-}
-
-export async function createVectorIndex(conn: Connection, dimensions: number): Promise<void> {
-  const currentDimension = await getEmbeddingDimension(conn);
-
-  if (currentDimension === dimensions) {
-    if (await indexExists(conn, "Chunk", VECTOR_INDEX_NAME)) {
-      return;
-    }
-  } else {
-    if (await indexExists(conn, "Chunk", VECTOR_INDEX_NAME)) {
-      await conn.query(`CALL DROP_VECTOR_INDEX("Chunk", "${VECTOR_INDEX_NAME}")`);
-    }
-    if (await indexExists(conn, "Chunk", FTS_INDEX_NAME)) {
-      await conn.query(`CALL DROP_FTS_INDEX("Chunk", "${FTS_INDEX_NAME}")`);
-    }
-
-    await conn.query("DROP TABLE IF EXISTS CONTAINS_CHUNK");
-    await conn.query("DROP TABLE IF EXISTS Chunk");
-
-    const chunkTable = GRAPH_SCHEMA.nodeTables.find((table) => table.name === "Chunk");
-    if (!chunkTable) {
-      throw new Error("Chunk table definition not found in GRAPH_SCHEMA");
-    }
-    await conn.query(createNodeTableSql(chunkTable, dimensions));
-
-    const chunkFts = GRAPH_SCHEMA.ftsIndexes.find((fts) => fts.table === "Chunk");
-    if (chunkFts) {
-      await createFtsIndex(conn, chunkFts);
-    }
-
-    const containsChunkRel = GRAPH_SCHEMA.relTables.find(
-      (table) => table.name === "CONTAINS_CHUNK",
-    );
-    if (containsChunkRel) {
-      await conn.query(createRelTableSql(containsChunkRel));
-    }
-  }
-
-  await conn.query(`CALL CREATE_VECTOR_INDEX("Chunk", "${VECTOR_INDEX_NAME}", "embedding")`);
+/** Rebuild is available for explicit repair, not required after normal trigger-maintained writes. */
+export function repairFtsIndex(conn: SqliteConnection): void {
+  conn.prepare("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')").run();
+  validateFtsIntegrity(conn);
 }

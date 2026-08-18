@@ -115,7 +115,7 @@ export async function querySearch(
       // corruption error into a full derived-state rebuild. An injected connection belongs to
       // the caller and might not be pooled, so it is deliberately left for that caller to close.
       if (!isCorruptionError(error) || deps.connection) throw error;
-      recoverCorruptIndex(config);
+      await recoverCorruptIndex(config);
       clearSearchCache(dbFile);
       await buildIndex(config, { full: true }, embedder ? { embedder } : {});
       return await withConnectionForConfig(config, runQuery);

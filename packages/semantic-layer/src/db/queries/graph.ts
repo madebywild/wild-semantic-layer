@@ -326,7 +326,7 @@ function withGraphConnection<T>(
     // `isCorruptionError` deliberately excludes logical FTS integrity failures. A physical index
     // failure is derived state, so quarantine it and make one full rebuild attempt before retry.
     if (isCorruptionError(error)) {
-      recoverCorruptIndex(config);
+      await recoverCorruptIndex(config);
       clearSearchCache(dbFileForConfig(config));
       await buildIndex(config, { full: true });
       return run();

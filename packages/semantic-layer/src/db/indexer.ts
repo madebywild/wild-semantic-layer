@@ -1,7 +1,5 @@
-import type { Connection } from "@ladybugdb/core";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-
 import type { AudienceEdge } from "../extract/audience.js";
 import { extractAudienceEdges } from "../extract/audience.js";
 import type { Chunk } from "../extract/chunking.js";
@@ -22,21 +20,27 @@ import {
   LocalEmbedderUnavailableError,
 } from "../search/embedder.js";
 import { getHeadSha } from "../search/git-diff.js";
-import type { BuildIndexResult, Note, ResolvedConfig } from "../types.js";
+import type { Note, ResolvedConfig } from "../types.js";
 import { readVault, type Vault } from "../vault.js";
-import { dbFileForConfig, withConnectionForConfig } from "./connection.js";
+import {
+  dbFileForConfig,
+  isCorruptionError,
+  legacyIndexArtifacts,
+  recoverCorruptIndex,
+  type SqliteConnection,
+  withConnectionForConfig,
+} from "./connection.js";
 import {
   countChunks,
   countNotes,
-  deleteOrphanNodes,
   deleteNoteSubgraph,
+  deleteOrphanNodes,
   insertAudienceEdges,
   insertChunksBatch,
   insertCodeRefEdges,
   insertHeadingsBatch,
   insertHierarchyEdges,
   insertNotes,
-  insertNoteSubgraph,
   insertSchemaEdges,
   insertTagEdges,
   insertWikilinkEdges,
@@ -45,21 +49,28 @@ import {
 } from "./insert.js";
 import {
   embedderMeta,
-  indexMetaPath,
-  isIndexStale,
   type IndexMeta,
+  isIndexStale,
+  readBooleanMetadata,
   readIndexMeta,
+  writeBooleanMetadata,
   writeIndexMeta,
 } from "./meta.js";
-import {
-  createSchema,
-  createVectorIndex,
-  dropSchema,
-  repairFtsIndex,
-  SCHEMA_VERSION,
-} from "./schema.js";
+import { createSchema, dropSchema, SCHEMA_VERSION, validateFtsIntegrity } from "./schema.js";
 
 export type IndexerDeps = { embedder?: Embedder };
+
+/** Operational build data used by the CLI; public `BuildIndexResult` is intentionally smaller. */
+export type IndexBuildResult = {
+  mode: "full" | "incremental";
+  ftsOnly: boolean;
+  notesIndexed: number;
+  notesRemoved: number;
+  noteCount: number;
+  chunkCount: number;
+  indexPath: string;
+  legacyMigrationNotice: boolean;
+};
 
 export function hashNote(note: Note): string {
   return createHash("sha256")
@@ -73,63 +84,49 @@ export async function buildIndex(
   config: ResolvedConfig,
   options: { full?: boolean } = {},
   deps: IndexerDeps = {},
-): Promise<BuildIndexResult> {
-  // Snapshot BEFORE opening: openDatabase creates the file on open, so an existence check inside
-  // the connection would always be true and a missing database would silently take the
-  // incremental path (producing an empty index that never self-heals).
+): Promise<IndexBuildResult> {
   const dbExisted = existsSync(dbFileForConfig(config));
-  return withConnectionForConfig(config, async (conn) => {
-    return buildIndexWithConnection(conn, config, { ...options, dbExisted }, deps);
-  });
+  try {
+    return await withConnectionForConfig(config, (conn) =>
+      buildIndexWithConnection(conn, config, { ...options, dbExisted }, deps),
+    );
+  } catch (error) {
+    if (!isCorruptionError(error)) throw error;
+    await recoverCorruptIndex(config);
+    const { clearSearchCache } = await import("./queries/cache.js");
+    clearSearchCache(dbFileForConfig(config));
+    // A corrupt derived database has no trustworthy incremental baseline.
+    return withConnectionForConfig(config, (conn) =>
+      buildIndexWithConnection(conn, config, { full: true, dbExisted: false }, deps),
+    );
+  }
 }
 
-/**
- * Internal entry point that runs the build logic on an already-open connection. Exposed for
- * tests that need to perform multiple builds on the same database without paying LadybugDB
- * 0.18.2's flaky close/open cost between calls.
- *
- * `options.dbExisted` must be the pre-open existence of the database file when the caller opened
- * the connection itself; it defaults to true (safe for tests building on a fresh database).
- */
 export async function buildIndexWithConnection(
-  conn: Connection,
+  conn: SqliteConnection,
   config: ResolvedConfig,
   options: { full?: boolean; dbExisted?: boolean } = {},
   deps: IndexerDeps = {},
-): Promise<BuildIndexResult> {
+): Promise<IndexBuildResult> {
   const ownEmbedder = deps.embedder === undefined;
   let embedder: Embedder | undefined;
   try {
-    const meta = readIndexMeta(config);
+    const meta = readIndexMeta(config, conn);
     const resolved = await resolveEmbedder(config, deps, meta);
     embedder = resolved.embedder;
-    const { ftsOnly } = resolved;
-    const dbFile = dbFileForConfig(config);
-    const metaFile = indexMetaPath(config);
-
     const needsFull =
       options.full === true ||
       !meta ||
       isIndexStale(config, meta, embedder) ||
       options.dbExisted === false;
-
-    if (needsFull) {
-      return await runFullRebuild(conn, config, embedder, ftsOnly, dbFile, metaFile);
-    }
-    return await runIncrementalRebuild(conn, config, meta, embedder, ftsOnly, dbFile, metaFile);
+    return needsFull
+      ? await runFullRebuild(conn, config, embedder, resolved.ftsOnly)
+      : await runIncrementalRebuild(conn, config, meta, embedder, resolved.ftsOnly);
   } finally {
-    if (ownEmbedder && embedder?.close) {
-      await embedder.close();
-    }
+    if (ownEmbedder) await embedder?.close?.();
   }
 }
 
-/**
- * Resolves the embedder for a build, degrading to an FTS-only index when the configured provider
- * is unavailable on this platform — but only when the existing index (if any) is already
- * FTS-only. Silently rebuilding a vector index as FTS-only would destroy the embeddings, so that
- * case fails with an actionable error instead.
- */
 async function resolveEmbedder(
   config: ResolvedConfig,
   deps: IndexerDeps,
@@ -139,75 +136,242 @@ async function resolveEmbedder(
   try {
     return { embedder: await createEmbedder(config.search.embedding), ftsOnly: false };
   } catch (error) {
-    if (error instanceof LocalEmbedderUnavailableError) {
-      if (meta?.embedding.kind === "embedder") {
-        throw new Error(
-          `semantic-layer index: ${error.message} The existing index has embeddings built with ` +
-            `"${meta.embedding.id}"; re-run on a platform with a working embedder, or delete ` +
-            "the index to rebuild it as FTS-only.",
-        );
+    if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
+    if (meta?.embedding.kind === "embedder") {
+      throw new Error(
+        `semantic-layer index: ${error.message} The existing index has embeddings built with "${meta.embedding.id}"; re-run on a platform with a working embedder.`,
+      );
+    }
+    console.error(`semantic-layer index: ${error.message} Building an FTS-only index.`);
+    return { embedder: undefined, ftsOnly: true };
+  }
+}
+
+type PreparedVault = {
+  vault: Vault;
+  validNotes: Map<string, Note>;
+  codeRefEdges: CodeRefEdge[];
+  chunksByNote: Map<string, Chunk[]>;
+  hierarchyEdges: HierarchyEdge[];
+  wikilinkEdges: WikilinkEdge[];
+  tagEdges: TagEdge[];
+  audienceEdges: AudienceEdge[];
+};
+
+/** All potentially slow/fallible work, especially embedding, finishes before BEGIN. */
+async function prepareVault(config: ResolvedConfig): Promise<PreparedVault> {
+  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
+  const chunksByNote = new Map(
+    [...validNotes.values()].map((note) => [note.id, chunkNote(note, config.search.chunking)]),
+  );
+  return {
+    vault,
+    validNotes,
+    codeRefEdges,
+    chunksByNote,
+    hierarchyEdges: extractHierarchyEdges(validNotes),
+    wikilinkEdges: [...validNotes.values()].flatMap(extractWikilinks),
+    tagEdges: extractTagEdges(validNotes),
+    audienceEdges: extractAudienceEdges(validNotes),
+  };
+}
+
+/** Generates only the vectors that the pending transaction will write. */
+async function embedChunks(
+  embedder: Embedder | undefined,
+  chunksByNote: Map<string, Chunk[]>,
+): Promise<Map<string, number[][]>> {
+  if (!embedder) return new Map();
+  const chunks = [...chunksByNote.values()].flat();
+  if (chunks.length === 0) return new Map();
+  const embeddings = await embedder.embedDocuments(chunks.map((chunk) => chunk.text));
+  if (embeddings.length !== chunks.length) {
+    throw new Error(`embedder returned ${embeddings.length} vectors for ${chunks.length} chunks`);
+  }
+  const byNote = new Map<string, number[][]>();
+  let offset = 0;
+  for (const [noteId, noteChunks] of chunksByNote) {
+    byNote.set(noteId, embeddings.slice(offset, offset + noteChunks.length));
+    offset += noteChunks.length;
+  }
+  return byNote;
+}
+
+async function runFullRebuild(
+  conn: SqliteConnection,
+  config: ResolvedConfig,
+  embedder: Embedder | undefined,
+  ftsOnly: boolean,
+): Promise<IndexBuildResult> {
+  const prepared = await prepareVault(config);
+  const embeddingsByNote = await embedChunks(embedder, prepared.chunksByNote);
+  const noteContentHashes = hashesFor(prepared.validNotes);
+  const legacyCandidate = legacyIndexArtifacts(config).length > 0;
+  const priorMigrationNotice =
+    readBooleanMetadata(conn, "legacy_migration_notice_emitted") === true;
+  let legacyMigrationNotice = false;
+  transaction(conn, () => {
+    dropSchema(conn);
+    createSchema(conn);
+    insertAll(conn, prepared, embeddingsByNote);
+    legacyMigrationNotice = legacyCandidate && !priorMigrationNotice;
+    if (legacyCandidate) writeBooleanMetadata(conn, "legacy_migration_notice_emitted", true);
+    writeIndexMeta(config, buildMeta(config, embedder, noteContentHashes), conn);
+    validateFtsIntegrity(conn);
+  });
+  await refreshCache(conn, dbFileForConfig(config));
+  drainWal(conn);
+  return result(conn, "full", ftsOnly, prepared.validNotes.size, 0, config, legacyMigrationNotice);
+}
+
+async function runIncrementalRebuild(
+  conn: SqliteConnection,
+  config: ResolvedConfig,
+  meta: IndexMeta,
+  embedder: Embedder | undefined,
+  ftsOnly: boolean,
+): Promise<IndexBuildResult> {
+  const prepared = await prepareVault(config);
+  const changed = new Set<string>();
+  const noteContentHashes = { ...meta.noteContentHashes };
+  for (const note of prepared.validNotes.values())
+    if (noteContentHashes[note.id] !== hashNote(note)) changed.add(note.id);
+  let notesRemoved = 0;
+  for (const id of Object.keys(noteContentHashes)) {
+    if (!prepared.validNotes.has(id)) {
+      changed.add(id);
+      notesRemoved += 1;
+    }
+  }
+  const changedIds = [...changed];
+  const changedNotes = [...prepared.validNotes.values()].filter((note) => changed.has(note.id));
+  const embeddingsByNote = await embedChunks(
+    embedder,
+    new Map(changedNotes.map((note) => [note.id, prepared.chunksByNote.get(note.id) ?? []])),
+  );
+  transaction(conn, () => {
+    for (const id of changedIds) {
+      deleteNoteSubgraph(conn, id);
+      delete noteContentHashes[id];
+    }
+    // Restore every node before any relationship. A batch may change both ends of a link or
+    // hierarchy edge; foreign keys make the old incremental one-note-at-a-time order invalid.
+    insertNotes(conn, changedNotes);
+    insertHeadingsBatch(conn, changedNotes);
+    const changedChunks = changedNotes.flatMap((note) => prepared.chunksByNote.get(note.id) ?? []);
+    insertChunksBatch(conn, changedChunks);
+    if (embedder) {
+      for (const note of changedNotes) {
+        const chunks = prepared.chunksByNote.get(note.id) ?? [];
+        updateChunkEmbeddings(conn, chunks, embeddingsByNote.get(note.id) ?? []);
       }
-      console.error(`semantic-layer index: ${error.message} Building an FTS-only index.`);
-      return { embedder: undefined, ftsOnly: true };
+    }
+    for (const note of changedNotes) {
+      insertEdgesForNote(conn, prepared, note);
+      noteContentHashes[note.id] = hashNote(note);
+    }
+    conn.exec("DELETE FROM schemas");
+    insertSchemaEdges(
+      conn,
+      prepared.vault.schemas,
+      extractSchemaEdges(prepared.vault.schemas, prepared.validNotes),
+    );
+    deleteOrphanNodes(conn);
+    writeIndexMeta(config, buildMeta(config, embedder, noteContentHashes), conn);
+    validateFtsIntegrity(conn);
+  });
+  await refreshCache(conn, dbFileForConfig(config), changedIds);
+  drainWal(conn);
+  return result(
+    conn,
+    "incremental",
+    ftsOnly,
+    changedIds.length - notesRemoved,
+    notesRemoved,
+    config,
+    false,
+  );
+}
+
+function transaction(conn: SqliteConnection, fn: () => void): void {
+  conn.exec("BEGIN IMMEDIATE");
+  try {
+    fn();
+    conn.exec("COMMIT");
+  } catch (error) {
+    try {
+      conn.exec("ROLLBACK");
+    } catch {
+      // Preserve the originating error.
     }
     throw error;
   }
 }
 
-async function runFullRebuild(
-  conn: Connection,
+/** A committed index must be complete in vault.sqlite without requiring its WAL sidecar. */
+function drainWal(conn: SqliteConnection): void {
+  const checkpoint = conn.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as
+    | { busy?: number; log?: number }
+    | undefined;
+  if (Number(checkpoint?.busy ?? 0) !== 0 || Number(checkpoint?.log ?? 0) !== 0) {
+    throw new Error("semantic-layer index: SQLite WAL checkpoint did not fully drain");
+  }
+}
+
+function insertAll(
+  conn: SqliteConnection,
+  prepared: PreparedVault,
+  embeddingsByNote: Map<string, number[][]>,
+): void {
+  insertNotes(conn, [...prepared.validNotes.values()]);
+  insertHeadingsBatch(conn, [...prepared.validNotes.values()]);
+  insertChunksBatch(conn, [...prepared.chunksByNote.values()].flat());
+  if (embeddingsByNote.size > 0) {
+    for (const [noteId, chunks] of prepared.chunksByNote) {
+      updateChunkEmbeddings(conn, chunks, embeddingsByNote.get(noteId) ?? []);
+    }
+  }
+  insertTagEdges(conn, prepared.tagEdges);
+  insertAudienceEdges(conn, prepared.audienceEdges);
+  insertCodeRefEdges(conn, prepared.codeRefEdges);
+  insertSchemaEdges(
+    conn,
+    prepared.vault.schemas,
+    extractSchemaEdges(prepared.vault.schemas, prepared.validNotes),
+  );
+  insertHierarchyEdges(conn, prepared.hierarchyEdges);
+  insertWikilinkEdges(conn, prepared.wikilinkEdges);
+}
+
+function insertEdgesForNote(conn: SqliteConnection, prepared: PreparedVault, note: Note): void {
+  const edges = subgraphEdges(note, prepared);
+  insertTagEdges(conn, edges.tags);
+  insertAudienceEdges(conn, edges.audience);
+  insertCodeRefEdges(conn, edges.codeRefs);
+  insertHierarchyEdges(conn, edges.hierarchy);
+  insertWikilinkEdges(conn, edges.wikilinks);
+}
+
+function subgraphEdges(note: Note, prepared: PreparedVault): NoteSubgraphEdges {
+  return {
+    hierarchy: prepared.hierarchyEdges.filter(
+      (edge) => edge.parent === note.id || edge.child === note.id,
+    ),
+    wikilinks: prepared.wikilinkEdges.filter(
+      (edge) => edge.source === note.id || edge.target === note.id,
+    ),
+    tags: prepared.tagEdges.filter((edge) => edge.noteId === note.id),
+    audience: prepared.audienceEdges.filter((edge) => edge.noteId === note.id),
+    codeRefs: prepared.codeRefEdges.filter((edge) => edge.noteId === note.id),
+  };
+}
+
+function buildMeta(
   config: ResolvedConfig,
   embedder: Embedder | undefined,
-  ftsOnly: boolean,
-  dbFile: string,
-  metaFile: string,
-): Promise<BuildIndexResult> {
-  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
-
-  await dropSchema(conn);
-  await createSchema(conn, embedder?.dimensions);
-
-  const chunks = [...validNotes.values()].flatMap((note) =>
-    chunkNote(note, config.search.chunking),
-  );
-  const hierarchyEdges = extractHierarchyEdges(validNotes);
-  const tagEdges = extractTagEdges(validNotes);
-  const audienceEdges = extractAudienceEdges(validNotes);
-  const schemaEdges = extractSchemaEdges(vault.schemas, validNotes);
-  const wikilinkEdges = [...validNotes.values()].flatMap((note) => extractWikilinks(note));
-
-  await insertNotes(conn, [...validNotes.values()]);
-  await insertHeadingsBatch(conn, [...validNotes.values()]);
-  await insertChunksBatch(conn, chunks);
-  await insertTagEdges(conn, tagEdges);
-  await insertAudienceEdges(conn, audienceEdges);
-  await insertCodeRefEdges(conn, codeRefEdges);
-  await insertSchemaEdges(conn, vault.schemas, schemaEdges);
-  await insertHierarchyEdges(conn, hierarchyEdges);
-  await insertWikilinkEdges(conn, wikilinkEdges);
-
-  if (embedder) {
-    const embeddings = await embedder.embedDocuments(chunks.map((c) => c.text));
-    await updateChunkEmbeddings(conn, chunks, embeddings);
-    // The HNSW index is built only now, in one bulk CREATE_VECTOR_INDEX pass over the populated
-    // table: LadybugDB 0.18.2's incremental index-maintenance path (one HNSW insert per SET)
-    // segfaults at scale — libvector OnDiskHNSWIndex::shrinkForNode null-derefs inside
-    // simsimd_cos_f32_neon once the graph grows into the thousands (reproduced at ~5k chunks).
-    // Incremental rebuilds keep the existing index; their per-run update volume stays small.
-    await createVectorIndex(conn, embedder.dimensions);
-  }
-
-  await repairFtsIndex(conn);
-
-  const noteContentHashes: Record<string, string> = {};
-  for (const note of validNotes.values()) {
-    noteContentHashes[note.id] = hashNote(note);
-  }
-
-  const noteCount = validNotes.size;
-  const chunkCount = await countChunks(conn);
-
-  writeIndexMeta(config, {
+  noteContentHashes: Record<string, string>,
+): IndexMeta {
+  return {
     schemaVersion: SCHEMA_VERSION,
     vaultDir: config.vaultDir,
     lastIndexedSha: getHeadSha(config.repoRoot),
@@ -215,129 +379,48 @@ async function runFullRebuild(
     embedding: embedderMeta(embedder),
     chunking: config.search.chunking,
     noteContentHashes,
-  });
-
-  return {
-    mode: "full",
-    ftsOnly,
-    notesIndexed: noteCount,
-    notesRemoved: 0,
-    noteCount,
-    chunkCount,
-    dbFile,
-    metaFile,
   };
 }
 
-async function runIncrementalRebuild(
-  conn: Connection,
-  config: ResolvedConfig,
-  meta: IndexMeta,
-  embedder: Embedder | undefined,
+function hashesFor(notes: Map<string, Note>): Record<string, string> {
+  return Object.fromEntries([...notes.values()].map((note) => [note.id, hashNote(note)]));
+}
+
+function result(
+  conn: SqliteConnection,
+  mode: "full" | "incremental",
   ftsOnly: boolean,
-  dbFile: string,
-  metaFile: string,
-): Promise<BuildIndexResult> {
-  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
-
-  // Change detection is pure content reconciliation: any note whose hash changed or is new, plus
-  // any hashed note that no longer exists. Git is deliberately not involved — the vault may be
-  // untracked, partially committed, or rebased, and the index must still converge to the truth.
-  const noteContentHashes = { ...meta.noteContentHashes };
-  const changedNoteIds = new Set<string>();
-  for (const note of validNotes.values()) {
-    if (noteContentHashes[note.id] !== hashNote(note)) {
-      changedNoteIds.add(note.id);
-    }
-  }
-  let notesRemoved = 0;
-  for (const id of Object.keys(noteContentHashes)) {
-    if (!validNotes.has(id)) {
-      changedNoteIds.add(id);
-      notesRemoved += 1;
-    }
-  }
-
-  for (const noteId of changedNoteIds) {
-    await deleteNoteSubgraph(conn, noteId);
-    delete noteContentHashes[noteId];
-  }
-
-  // Extract edge sets once; wikilink and hierarchy edges must include inbound relationships to
-  // re-created notes after DETACH DELETE removes them.
-  const hierarchyEdges = extractHierarchyEdges(validNotes);
-  const wikilinkEdges = [...validNotes.values()].flatMap((note) => extractWikilinks(note));
-  const tagEdges = extractTagEdges(validNotes);
-  const audienceEdges = extractAudienceEdges(validNotes);
-  const schemaChildEdges = extractSchemaEdges(vault.schemas, validNotes);
-
-  const notesToReinsert = [...validNotes.values()].filter((note) => changedNoteIds.has(note.id));
-  const chunksToEmbed: { note: Note; chunks: Chunk[] }[] = [];
-
-  for (const note of notesToReinsert) {
-    const chunks = chunkNote(note, config.search.chunking);
-    const edges = buildNoteSubgraphEdges(
-      note,
-      hierarchyEdges,
-      wikilinkEdges,
-      tagEdges,
-      audienceEdges,
-      codeRefEdges,
-    );
-    await insertNoteSubgraph(conn, note, chunks, edges);
-    chunksToEmbed.push({ note, chunks });
-    noteContentHashes[note.id] = hashNote(note);
-  }
-
-  // Batch embed all changed chunks in one provider call.
-  if (embedder && chunksToEmbed.length > 0) {
-    const allTexts = chunksToEmbed.flatMap(({ chunks }) => chunks.map((chunk) => chunk.text));
-    const allEmbeddings = await embedder.embedDocuments(allTexts);
-    let offset = 0;
-    for (const { chunks } of chunksToEmbed) {
-      const embeddings = allEmbeddings.slice(offset, offset + chunks.length);
-      await updateChunkEmbeddings(conn, chunks, embeddings);
-      offset += chunks.length;
-    }
-  }
-
-  // Schema files are not tracked by note hashes; refresh SCHEMA_CHILD edges on every incremental
-  // run. The set is small and this guarantees schema-only edits take effect.
-  await conn.query("MATCH ()-[r:SCHEMA_CHILD]->() DELETE r");
-  await insertSchemaEdges(conn, vault.schemas, schemaChildEdges);
-
-  await deleteOrphanNodes(conn);
-  await repairFtsIndex(conn);
-
-  const notesIndexed = notesToReinsert.length;
-  const noteCount = await countNotes(conn);
-  const chunkCount = await countChunks(conn);
-
-  writeIndexMeta(config, {
-    ...meta,
-    lastIndexedSha: getHeadSha(config.repoRoot),
-    lastIndexedAt: new Date().toISOString(),
-    embedding: embedderMeta(embedder),
-    chunking: config.search.chunking,
-    noteContentHashes,
-  });
-
+  notesIndexed: number,
+  notesRemoved: number,
+  config: ResolvedConfig,
+  legacyMigrationNotice: boolean,
+): IndexBuildResult {
   return {
-    mode: "incremental",
+    mode,
     ftsOnly,
     notesIndexed,
     notesRemoved,
-    noteCount,
-    chunkCount,
-    dbFile,
-    metaFile,
+    noteCount: countNotes(conn),
+    chunkCount: countChunks(conn),
+    indexPath: dbFileForConfig(config),
+    legacyMigrationNotice,
   };
 }
 
-/**
- * The shared build prelude: read the vault, validate frontmatter, resolve code refs. Throws
- * with the full error list when anything is invalid — a partial index is never written.
- */
+async function refreshCache(
+  conn: SqliteConnection,
+  dbPath: string,
+  changedNoteIds?: string[],
+): Promise<void> {
+  const { clearSearchCache, refreshSearchCache } = await import("./queries/cache.js");
+  try {
+    refreshSearchCache(conn, dbPath, changedNoteIds);
+  } catch (error) {
+    clearSearchCache(dbPath);
+    throw error;
+  }
+}
+
 async function readValidatedVault(config: ResolvedConfig): Promise<{
   vault: Vault;
   validNotes: Map<string, Note>;
@@ -345,32 +428,11 @@ async function readValidatedVault(config: ResolvedConfig): Promise<{
 }> {
   const vault = readVault(config.vaultDir);
   const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
-  if (frontmatterErrors.length > 0) {
-    throw new Error(formatIndexErrors(frontmatterErrors));
-  }
+  if (frontmatterErrors.length > 0) throw new Error(formatIndexErrors(frontmatterErrors));
   const { edges: codeRefEdges, errors: codeRefErrors } = await extractCodeRefEdges(
     validNotes,
     config.repoRoot,
   );
-  if (codeRefErrors.length > 0) {
-    throw new Error(formatIndexErrors(codeRefErrors));
-  }
+  if (codeRefErrors.length > 0) throw new Error(formatIndexErrors(codeRefErrors));
   return { vault, validNotes, codeRefEdges };
-}
-
-function buildNoteSubgraphEdges(
-  note: Note,
-  hierarchyEdges: HierarchyEdge[],
-  wikilinkEdges: WikilinkEdge[],
-  tagEdges: TagEdge[],
-  audienceEdges: AudienceEdge[],
-  codeRefEdges: CodeRefEdge[],
-): NoteSubgraphEdges {
-  const hierarchy = hierarchyEdges.filter((e) => e.parent === note.id || e.child === note.id);
-  // Inbound wikilinks (other notes linking to this note) must be restored after DETACH DELETE.
-  const wikilinks = wikilinkEdges.filter((e) => e.source === note.id || e.target === note.id);
-  const tags = tagEdges.filter((e) => e.noteId === note.id);
-  const audience = audienceEdges.filter((e) => e.noteId === note.id);
-  const codeRefs = codeRefEdges.filter((e) => e.noteId === note.id);
-  return { hierarchy, wikilinks, tags, audience, codeRefs };
 }
