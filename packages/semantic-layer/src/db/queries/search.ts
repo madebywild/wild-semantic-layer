@@ -236,12 +236,12 @@ function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: nu
   const rows = conn
     .prepare(
       `SELECT c.id, c.note_id AS noteId, c.heading_path AS headingPath, n.title, c.text, n.status,
-              -bm25(chunks_fts) AS score
+              -chunks_fts.rank AS score
          FROM chunks_fts
          JOIN chunks c ON c.rowid = chunks_fts.rowid
          JOIN notes n ON n.id = c.note_id
         WHERE chunks_fts MATCH :term${where.length ? ` AND ${where.join(" AND ")}` : ""}
-        ORDER BY score DESC, c.id
+        ORDER BY chunks_fts.rank, c.id
         LIMIT :limit`,
     )
     .all({ ...params, term, limit }) as Record<string, unknown>[];
