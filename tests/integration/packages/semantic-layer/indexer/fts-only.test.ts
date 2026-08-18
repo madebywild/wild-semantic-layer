@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
-import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import { querySearch } from "../../../../../packages/semantic-layer/src/db/queries/search.js";
 import {
@@ -25,7 +24,7 @@ vi.mock("@huggingface/transformers", () => {
 });
 
 describe("indexer FTS-only build (embedder unavailable)", () => {
-  it("builds an FTS-only index: chunks are stored, no embedding column exists", async () => {
+  it("builds an FTS-only index: chunks are stored with null embeddings", async () => {
     const tv = createTempVault({
       "vault/root.md": validNote("root", "Root", "Entry point."),
       "vault/alpha.md": validNote("alpha", "Alpha", "Alpha note."),
@@ -44,10 +43,10 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
       expect(result.noteCount).toBe(2);
       expect(result.chunkCount).toBeGreaterThan(0);
 
-      // Without an embedder there is no embedding column at all (it is created per-dimension).
       await withConnectionForConfig(config, async (conn) => {
-        const rows = await queryRows(conn, 'CALL table_info("Chunk") RETURN *');
-        expect(rows.some((row) => row.name === "embedding")).toBe(false);
+        expect(
+          conn.prepare("SELECT count(*) AS count FROM chunks WHERE embedding IS NOT NULL").get(),
+        ).toMatchObject({ count: 0 });
       });
     } finally {
       tv.cleanup();

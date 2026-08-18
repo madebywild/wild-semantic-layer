@@ -86,8 +86,7 @@ describe("index generation (integration)", () => {
       const config = loadConfig({ cwd: tv.dir });
       const embedder = createFakeEmbedder();
 
-      // Reuse a single LadybugDB connection across both runs to avoid the WAL checkpoint race that
-      // intermittently corrupts rapid open/close cycles in the same process.
+      // Reuse the injected SQLite connection across both builds.
       await withConnectionForConfig(config, async (conn) => {
         const result1 = await indexResolved(config, { embedder, connection: conn });
 

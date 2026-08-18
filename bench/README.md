@@ -36,7 +36,9 @@ supersede it with a new dated file and link back if the conclusion changes.
    definitions, reproduction commands, any deviation from the canonical
    protocol (and why).
 4. **Results** — one table per dataset covering every mode and metric, plus
-   timings (index throughput, query latency). Published baselines with
+   timings (index throughput, query latency). The SQLite v2 target includes
+   the existing 17,802-chunk BEIR workload and FiQA2018 at roughly 57k
+   documents; record actual chunk counts and timings from the run. Published baselines with
    citations for context, clearly separated from our numbers.
 5. **Findings** — numbered defects/observations the run surfaced, each with
    its evidence (crash stack, probe result, measurement) and resolution.

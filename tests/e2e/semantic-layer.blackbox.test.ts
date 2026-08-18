@@ -87,9 +87,8 @@ describe("semantic-layer CLI blackbox", () => {
       ),
     };
 
-    // LadybugDB ships a native module that requires glibc + OpenSSL 3, so
-    // Alpine/musl is not supported and the slim image omits libssl. Use the
-    // full Debian-based image for blackbox tests.
+    // The blackbox package is also exercised on Node 24; the release container
+    // suite separately validates the supported Node 22.16 floor.
     container = await new GenericContainer("node:24")
       .withCommand(["sleep", "infinity"])
       .withCopyDirectoriesToContainer([{ source: workspacesDir, target: containerRoot }])

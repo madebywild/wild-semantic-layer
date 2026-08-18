@@ -1,8 +1,11 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { runGraph } from "../../../../../packages/semantic-layer/src/commands/graph.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
+import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import {
+  readIndexMeta,
+  writeIndexMeta,
+} from "../../../../../packages/semantic-layer/src/db/meta.js";
 import {
   ancestors,
   backlinks,
@@ -209,10 +212,11 @@ describe("graph queries", () => {
     const { tv, config } = await setupIndexedVault();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const metaFile = join(tv.vaultDir, ".semantic-layer", "vault.lbug.meta.json");
-      const meta = JSON.parse(readFileSync(metaFile, "utf8")) as { schemaVersion: number };
-      meta.schemaVersion = 999;
-      writeFileSync(metaFile, JSON.stringify(meta, null, 2));
+      await withConnectionForConfig(config, (conn) => {
+        const meta = readIndexMeta(config, conn);
+        if (!meta) throw new Error("expected SQLite index metadata");
+        writeIndexMeta({ ...meta, schemaVersion: 999 }, conn);
+      });
 
       const hits = await orphans(config);
       expect(hits).toHaveLength(1);

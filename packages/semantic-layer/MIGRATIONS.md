@@ -1,5 +1,53 @@
 # @madebywild/semantic-layer migrations
 
+## 2.0.0
+
+`2.0.0` replaces the LadybugDB index with Node's built-in `node:sqlite` and a
+single derived SQLite file. This is a breaking major release for the supported
+Node version and for low-level index result/lifecycle APIs; vault note format,
+`search` modes, filters, and graph CLI semantics remain compatible.
+
+### Required runtime
+
+Run Node `>=22.16.0` (or Node 24). Although `node:sqlite` appears in earlier
+Node 22 releases, the official Node 22.13 build does not include SQLite FTS5,
+which this index requires. Installers enforce this through `engines.node`.
+
+### Migrate each vault
+
+1. Upgrade the package and remove any direct `@ladybugdb/core` dependency.
+2. Run `semantic-layer index --full`. It creates
+   `vault/.semantic-layer/vault.sqlite`, containing the graph/search tables and
+   index metadata in one database.
+3. Keep existing `vault/.semantic-layer/vault.lbug*` files until the SQLite
+   build succeeds. They are deliberately never deleted or mutated. The first
+   successful migration emits a one-time message that they are derived and
+   safe to remove manually.
+4. Add the SQLite artifacts to custom ignore files:
+
+   ```gitignore
+   **/.semantic-layer/vault.sqlite
+   **/.semantic-layer/vault.sqlite-wal
+   **/.semantic-layer/vault.sqlite-shm
+   ```
+
+   WAL and SHM files are transient SQLite sidecars, not separate durable
+   metadata. Continue ignoring `vault.lbug*` while legacy artifacts remain.
+
+### API and operational changes
+
+- `BuildIndexResult` now exposes only `{ indexPath }`; metadata is stored in
+  SQLite rather than a `.meta.json` sidecar.
+- LadybugDB-specific lifecycle APIs and connection/checkpoint workarounds are
+  removed. Do not call `closePooledDatabases()` to manage index durability.
+- `search.enabled: false` remains database-free: `index` writes only
+  `HIERARCHY.md` and `code-refs.json`.
+- FTS uses SQLite FTS5 maintained by triggers. Vectors are Float32 BLOBs and
+  vector/hybrid mode performs exact cosine retrieval from the process cache.
+- Physical corruption of this derived database is recoverable: artifacts are
+  quarantined and a full rebuild runs. Do not restore the former metadata
+  sidecar; it is no longer read.
+
 ## 1.0.0
 
 Adds a local [LadybugDB](https://ladybugdb.com)-backed vault index (search +

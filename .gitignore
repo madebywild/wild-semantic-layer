@@ -143,7 +143,12 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# semantic-layer generated vault index (derived, cheaply regenerable)
+# semantic-layer generated SQLite index (derived, cheaply regenerable)
+**/.semantic-layer/vault.sqlite
+**/.semantic-layer/vault.sqlite-wal
+**/.semantic-layer/vault.sqlite-shm
+# Legacy LadybugDB artifacts remain ignored so existing vaults do not become dirty
+# during the one-way SQLite migration.
 **/.semantic-layer/vault.lbug
 **/.semantic-layer/vault.lbug.wal
 **/.semantic-layer/vault.lbug.meta.json

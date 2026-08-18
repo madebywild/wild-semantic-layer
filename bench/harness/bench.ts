@@ -2,7 +2,7 @@
  * BEIR benchmark harness for semantic-layer's search index.
  *
  * Converts a BEIR dataset (corpus.jsonl / queries.jsonl / qrels/test.tsv) into a semantic-layer
- * vault (one note per document), builds the real index (LadybugDB + local nomic embedder), then
+ * vault (one note per document), builds the real SQLite index with a local nomic embedder, then
  * scores fts / vector / hybrid modes with nDCG@10, Recall@100, MRR@10 against the official qrels.
  *
  * Usage: node out/bench.mjs <dataset-name>   (expects .tmp/bench/datasets/<name>/ on disk)
@@ -12,7 +12,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../../packages/semantic-layer/src/config.js";
 import { buildIndex } from "../../packages/semantic-layer/src/db/indexer.js";
-import { closePooledDatabases } from "../../packages/semantic-layer/src/db/pool.js";
 import { querySearch } from "../../packages/semantic-layer/src/db/queries/search.js";
 import { createEmbedder } from "../../packages/semantic-layer/src/search/embedder.js";
 import type { SearchMode } from "../../packages/semantic-layer/src/types.js";
@@ -109,6 +108,18 @@ function ndcgAtK(ranked: string[], gains: Map<string, number>, k: number): numbe
   return idcg === 0 ? 0 : dcg / idcg;
 }
 
+/** Linear-interpolated percentile for recorded per-query wall-clock samples. */
+function percentile(samples: number[], value: number): number {
+  if (samples.length === 0) return 0;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * value;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const lowerValue = sorted[lower] as number;
+  const upperValue = sorted[upper] as number;
+  return lowerValue + (upperValue - lowerValue) * (index - lower);
+}
+
 async function main(): Promise<void> {
   const dataset = process.argv[2];
   if (!dataset) throw new Error("usage: bench.mjs <dataset>");
@@ -123,13 +134,9 @@ async function main(): Promise<void> {
   );
 
   if (process.argv[3] === "eval-only") {
-    console.error("eval-only: skipping index build, using existing index (WAL recovery on open)");
+    console.error("eval-only: skipping index build, using the existing SQLite index");
   } else {
     const t0 = performance.now();
-    // No injected embedder: buildIndex creates and — crucially — CLOSES its own embedder inside
-    // the connection callback, before the pool's post-callback CHECKPOINT. Injecting one keeps
-    // 1-3 GB of ONNX arena resident through that checkpoint, which segfaults LadybugDB's buffer
-    // manager at this scale (observed twice, same stack: finishCheckpoint → claimAFrame).
     const build = await buildIndex(config, { full: true });
     const indexSeconds = ((performance.now() - t0) / 1000).toFixed(1);
     console.error(
@@ -146,12 +153,15 @@ async function main(): Promise<void> {
     let recallSum = 0;
     let mrrSum = 0;
     const start = performance.now();
+    const querySamplesMs: number[] = [];
     for (const [index, qid] of queryIds.entries()) {
+      const queryStart = performance.now();
       const result = await querySearch(
         config,
         { query: queries.get(qid) as string, mode, limit: 100 },
         { embedder },
       );
+      querySamplesMs.push(performance.now() - queryStart);
       const ranked = dedupeByNote(result.hits);
       const gains = qrels.get(qid) as Map<string, number>;
       ndcgSum += ndcgAtK(ranked, gains, 10);
@@ -172,12 +182,13 @@ async function main(): Promise<void> {
         recall100: Number((recallSum / queryIds.length).toFixed(4)),
         mrr10: Number((mrrSum / queryIds.length).toFixed(4)),
         queryMs: Number(((seconds * 1000) / queryIds.length).toFixed(1)),
+        medianQueryMs: Number(percentile(querySamplesMs, 0.5).toFixed(1)),
+        p95QueryMs: Number(percentile(querySamplesMs, 0.95).toFixed(1)),
       }),
     );
   }
 
   await embedder.close?.();
-  await closePooledDatabases();
 }
 
 await main();

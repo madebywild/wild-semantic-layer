@@ -166,8 +166,7 @@ describe("createEmbedder (local)", () => {
       const [vector] = await embedder.embedDocuments(["hello world"]);
       if (!vector) throw new Error("expected a document vector");
       expect(vector).toHaveLength(512);
-      // LadybugDB expects plain arrays, so the embedder must convert every vector before it is
-      // stored or queried.
+      // The indexer receives plain arrays before encoding embeddings as Float32 BLOBs.
       expect(Array.isArray(vector)).toBe(true);
       // Matryoshka truncation must renormalize: vector search assumes unit-length vectors.
       expect(Math.hypot(...vector)).toBeCloseTo(1, 5);
