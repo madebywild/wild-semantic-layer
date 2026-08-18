@@ -133,6 +133,39 @@ describe("querySearch — modes", () => {
     }
   });
 
+  it("deduplicates function words while preserving all-stopword queries", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({
+        id: "alpha",
+        body: "## Section\n\nwidgets are reliable retrieval tools\n",
+      }),
+      "vault/beta.md": noteMarkdown({
+        id: "beta",
+        body: "## Section\n\nto be or not to be\n",
+      }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+
+      const normalized = await querySearch(
+        config,
+        { query: "THE the widgets widgets", mode: "fts" },
+        { embedder },
+      );
+      expect(normalized.hits.map((hit) => hit.noteId)).toContain("alpha");
+
+      const fallback = await querySearch(
+        config,
+        { query: "to be or not", mode: "fts" },
+        { embedder },
+      );
+      expect(fallback.hits.map((hit) => hit.noteId)).toContain("beta");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
   it("vector mode ranks the chunk with the identical text highest", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({

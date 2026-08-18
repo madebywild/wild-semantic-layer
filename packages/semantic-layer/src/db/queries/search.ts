@@ -35,6 +35,73 @@ const DEFAULT_VECTOR_SIMILARITY = 0.4;
 /** Standard reciprocal-rank-fusion damping constant. */
 const RRF_K = 60;
 
+/**
+ * Conservative English function words that add large posting lists without useful lexical
+ * discrimination. This remains query-side so the index keeps language-neutral tokenization.
+ */
+const FTS_STOPWORDS = new Set([
+  "a",
+  "about",
+  "after",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "before",
+  "but",
+  "by",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "for",
+  "from",
+  "has",
+  "have",
+  "he",
+  "how",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "not",
+  "of",
+  "on",
+  "or",
+  "our",
+  "she",
+  "should",
+  "than",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "they",
+  "this",
+  "to",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
 function candidateLimit(limit: number): number {
   return Math.max(limit * 5, 25);
 }
@@ -250,12 +317,16 @@ function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: nu
 
 /**
  * The CLI accepts ordinary user text, not raw FTS5 syntax. Quote each Unicode word so punctuation,
- * hyphens, operators, and unmatched quotes cannot change the MATCH grammar. Join tokens with OR
- * to retain broad natural-language retrieval instead of requiring every query word to occur.
+ * hyphens, operators, and unmatched quotes cannot change the MATCH grammar. Deduplicate and remove
+ * common English function words before OR-composing the remaining terms: this retains broad
+ * natural-language retrieval without needlessly scanning high-frequency posting lists. If every
+ * token is a stopword, fall back to the safe deduplicated tokens so short queries still work.
  */
 function ftsTerm(query: string): string | undefined {
-  const tokens = query.match(/[\p{L}\p{N}_]+/gu);
-  return tokens?.map((token) => `"${token}"`).join(" OR ") || undefined;
+  const tokens = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])];
+  const significant = tokens.filter((token) => !FTS_STOPWORDS.has(token));
+  const terms = significant.length > 0 ? significant : tokens;
+  return terms.map((token) => `"${token}"`).join(" OR ") || undefined;
 }
 
 function getVectorHits(
