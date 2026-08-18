@@ -1,10 +1,9 @@
 export { runCheck } from "./check.js";
-export { loadConfig } from "./config.js";
-// Native-free: pool.ts only type-imports @ladybugdb/core, so this export stays musl-safe.
-export { closePooledDatabases } from "./db/pool.js";
+export type { GraphCommandResult } from "./commands/graph.js";
 export { runGraph } from "./commands/graph.js";
 export { indexResolved, runIndex } from "./commands/index.js";
 export { runSearch } from "./commands/search.js";
+export { loadConfig } from "./config.js";
 export { runInit } from "./init.js";
 export {
   runRefinementList,
@@ -14,7 +13,6 @@ export {
 } from "./refinements.js";
 export type { Embedder } from "./search/embedder.js";
 export { LocalEmbedderUnavailableError } from "./search/embedder.js";
-export type { GraphCommandResult } from "./commands/graph.js";
 export type {
   AncestorResult,
   BacklinkResult,

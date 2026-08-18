@@ -69,8 +69,7 @@ export async function runRefinementPromote(
   if (metadataErrors.length > 0) {
     throw new Error(`refinement metadata validation failed:\n${metadataErrors.join("\n")}`);
   }
-  // Lazy import: keeps the LadybugDB native module out of the process unless a command
-  // actually needs the index (see cli.ts's comment on lazy command loading).
+  // Lazy import: a search-disabled refinement promotion must not create or open SQLite state.
   const { indexResolved } = await import("./commands/index.js");
   const indexed = await indexResolved(config, { embedder: options.embedder });
   return { file, indexFile: indexed.outFile, refinement: promoted };

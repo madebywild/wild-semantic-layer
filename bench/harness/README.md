@@ -21,6 +21,7 @@ dependencies resolve against the package's own `node_modules`:
 
 ```bash
 pnpm exec tsup bench/harness/bench.ts --format esm \
+  --config packages/semantic-layer/tsup.config.ts \
   --out-dir packages/semantic-layer/dist/bench \
   --external @huggingface/transformers \
   --external yaml --external gray-matter --external zod --external typescript

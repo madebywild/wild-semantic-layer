@@ -216,7 +216,7 @@ async function runFullRebuild(
     insertAll(conn, prepared, embeddingsByNote);
     legacyMigrationNotice = legacyCandidate && !priorMigrationNotice;
     if (legacyCandidate) writeBooleanMetadata(conn, "legacy_migration_notice_emitted", true);
-    writeIndexMeta(config, buildMeta(config, embedder, noteContentHashes), conn);
+    writeIndexMeta(buildMeta(config, embedder, noteContentHashes), conn);
     validateFtsIntegrity(conn);
   });
   await refreshCache(conn, dbFileForConfig(config));
@@ -277,7 +277,7 @@ async function runIncrementalRebuild(
       extractSchemaEdges(prepared.vault.schemas, prepared.validNotes),
     );
     deleteOrphanNodes(conn);
-    writeIndexMeta(config, buildMeta(config, embedder, noteContentHashes), conn);
+    writeIndexMeta(buildMeta(config, embedder, noteContentHashes), conn);
     validateFtsIntegrity(conn);
   });
   await refreshCache(conn, dbFileForConfig(config), changedIds);

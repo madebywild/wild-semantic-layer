@@ -1,5 +1,5 @@
-import { slug } from "../vault.js";
 import type { Note } from "../types.js";
+import { slug } from "../vault.js";
 
 export type WikilinkEdge = {
   source: string;

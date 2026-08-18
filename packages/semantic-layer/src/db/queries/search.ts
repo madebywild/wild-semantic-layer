@@ -3,6 +3,7 @@ import {
   createEmbedder,
   describeConfiguredEmbedder,
   type Embedder,
+  LocalEmbedderUnavailableError,
 } from "../../search/embedder.js";
 import { candidateNoteIdsSinceSha, getHeadSha, isAncestorOfHead } from "../../search/git-diff.js";
 import type {
@@ -25,7 +26,7 @@ import {
   type IndexMeta,
   readIndexMeta,
 } from "../meta.js";
-import { clearSearchCache, getSearchCache, type CachedChunk, type CachedNote } from "./cache.js";
+import { type CachedChunk, type CachedNote, clearSearchCache, getSearchCache } from "./cache.js";
 
 export type SearchQueryDeps = { embedder?: Embedder; connection?: SqliteConnection };
 
@@ -56,13 +57,24 @@ export async function querySearch(
   const dbFile = dbFileForConfig(config);
   const dbExisted = existsSync(dbFile);
   const ownEmbedder = deps.embedder === undefined;
-  const embedder = deps.embedder;
+  let embedder = deps.embedder;
 
   try {
     const runQuery = async (conn: SqliteConnection): Promise<SearchQueryResult> => {
       let meta = readIndexMeta(config, conn);
       let rebuilt = false;
-      if (!dbExisted || !meta || opts.rebuild === true) {
+      const willBuild = !dbExisted || !meta || opts.rebuild === true;
+      // A cold vector/hybrid query shares one embedder between the build and query phases. This
+      // avoids loading two native sessions and gives querySearch one clear lifecycle to own.
+      if (mode !== "fts" && willBuild && !embedder) {
+        try {
+          embedder = await createEmbedder(config.search.embedding);
+        } catch (error) {
+          // Let the indexer's established FTS-only fallback produce the actionable mode error.
+          if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
+        }
+      }
+      if (willBuild) {
         if (!dbExisted || !meta) {
           console.error("semantic-layer search: no index found yet; building one now.");
         }
@@ -219,6 +231,8 @@ function buildFilters(opts: SearchQueryOptions): { where: string[]; params: SqlP
 
 function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: number): RawHit[] {
   const { where, params } = buildFilters(opts);
+  const term = ftsTerm(opts.query);
+  if (!term) return [];
   const rows = conn
     .prepare(
       `SELECT c.id, c.note_id AS noteId, c.heading_path AS headingPath, n.title, c.text, n.status,
@@ -230,8 +244,18 @@ function runFtsQuery(conn: SqliteConnection, opts: SearchQueryOptions, limit: nu
         ORDER BY score DESC, c.id
         LIMIT :limit`,
     )
-    .all({ ...params, term: opts.query, limit }) as Record<string, unknown>[];
+    .all({ ...params, term, limit }) as Record<string, unknown>[];
   return rows.map((row) => toRawHit(row, Number(row.score)));
+}
+
+/**
+ * The CLI accepts ordinary user text, not raw FTS5 syntax. Quote each Unicode word so punctuation,
+ * hyphens, operators, and unmatched quotes cannot change the MATCH grammar. Adjacent quoted terms
+ * retain FTS5's default implicit-AND behavior without forcing an exact phrase.
+ */
+function ftsTerm(query: string): string | undefined {
+  const tokens = query.match(/[\p{L}\p{N}_]+/gu);
+  return tokens?.map((token) => `"${token}"`).join(" ") || undefined;
 }
 
 function getVectorHits(

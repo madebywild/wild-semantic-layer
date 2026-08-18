@@ -1,4 +1,4 @@
-import { loadConfig, type LoadConfigOptions } from "../config.js";
+import { type LoadConfigOptions, loadConfig } from "../config.js";
 import type {
   AncestorResult,
   BacklinkResult,
@@ -29,9 +29,8 @@ export type GraphCommandOptions = LoadConfigOptions & {
 
 /**
  * Dispatches a `semantic-layer graph <subcommand>` invocation to the matching
- * graph query. Returns structured hits; the CLI owns rendering (list or --json).
- * The db layer (and LadybugDB's native module with it) is imported lazily so
- * library consumers pulling in unrelated helpers never load native code.
+ * graph query. Returns structured hits; the CLI owns rendering (list or --json). The SQLite
+ * query layer is imported lazily so unrelated consumers do not open the vault index.
  */
 export async function runGraph(options: GraphCommandOptions): Promise<GraphCommandResult> {
   const { subcommand, noteId, file, symbol, limit, depth, ...loadOptions } = options;

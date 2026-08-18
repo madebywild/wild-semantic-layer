@@ -11,7 +11,7 @@ The package provides:
   wikilinks, TypeScript/JavaScript symbol references, freshness, and configured
   invariants.
 - `semantic-layer index` - regenerate `vault/HIERARCHY.md`,
-  `vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index.
+  `vault/.semantic-layer/code-refs.json`, and the single-file SQLite vault index.
 - `semantic-layer init` - scaffold a working vault and config.
 - `semantic-layer refine` - stage, list, promote, or reject evolutionary
   self-improvement refinement candidates.
@@ -59,6 +59,7 @@ packages/semantic-layer  reusable package and CLI
 apps/demo                live consumer app with a real vault
 tests/unit               focused rule and helper coverage
 tests/integration        source-level API workflow coverage
+tests/integration-container  integration suite on supported Linux/Node runtimes
 tests/e2e                blackbox CLI/package tests using Testcontainers
 ```
 
@@ -72,16 +73,18 @@ pnpm test
 pnpm test:coverage
 pnpm test:e2e
 pnpm check
+pnpm check:release
 ```
 
 Use PNPM 11.1.1, as declared in `package.json`. `pnpm demo` builds the package,
 validates and indexes the demo vault, then runs the demo app.
 
-`pnpm test` runs the full Vitest workspace, including the Docker-backed e2e
-package install test. `pnpm test:coverage` runs unit and integration tests with
-coverage thresholds against `packages/semantic-layer/src`. `pnpm check` is the
-release gate: formatting, linting, typecheck, measured coverage, e2e package
-test, and demo showcase.
+`pnpm test` runs the Vitest workspace. `pnpm test:coverage` runs unit and
+integration tests with coverage thresholds against `packages/semantic-layer/src`.
+`pnpm check` runs formatting, linting, typecheck, measured coverage, the e2e
+package test, and the demo showcase. Release work additionally runs
+`pnpm check:release`, which repeats those gates and adds the Linux container
+integration matrix.
 
 ## Deployment
 

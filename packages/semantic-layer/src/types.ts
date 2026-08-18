@@ -212,14 +212,8 @@ export type CheckResult = {
 };
 
 export type BuildIndexResult = {
-  mode: "full" | "incremental";
-  ftsOnly: boolean;
-  notesIndexed: number;
-  notesRemoved: number;
-  noteCount: number;
-  chunkCount: number;
-  dbFile: string;
-  metaFile: string;
+  /** File-backed SQLite index containing both graph/search data and index metadata. */
+  indexPath: string;
 };
 
 export type SearchQueryOptions = {

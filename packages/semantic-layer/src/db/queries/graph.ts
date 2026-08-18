@@ -323,8 +323,8 @@ function withGraphConnection<T>(
       return fn(conn);
     });
   return run().catch(async (error: unknown) => {
-    // `isCorruptionError` deliberately excludes logical FTS integrity failures. A physical index
-    // failure is derived state, so quarantine it and make one full rebuild attempt before retry.
+    // Only SQLite corruption-class failures (including a malformed FTS virtual index) are
+    // recoverable derived state; quarantine and make one full rebuild attempt before retry.
     if (isCorruptionError(error)) {
       await recoverCorruptIndex(config);
       clearSearchCache(dbFileForConfig(config));

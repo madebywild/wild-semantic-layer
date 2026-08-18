@@ -37,7 +37,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean --sourcemap --external @huggingface/transformers",
+    "build": "tsup src/index.ts src/cli.ts --config tsup.config.ts --format esm --dts --clean --sourcemap --external @huggingface/transformers",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit"
   },

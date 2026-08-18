@@ -66,19 +66,12 @@ export function readIndexMeta(
 }
 
 /** Must be called on the active index transaction when one exists. */
-export function writeIndexMeta(
-  config: ResolvedConfig,
-  meta: IndexMeta,
-  conn?: SqliteConnection,
-): void {
-  const db = conn ?? openDatabase(dbFileForConfig(config));
-  try {
-    db.prepare(
+export function writeIndexMeta(meta: IndexMeta, conn: SqliteConnection): void {
+  conn
+    .prepare(
       "INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(INDEX_META_KEY, JSON.stringify(meta));
-  } finally {
-    if (!conn) db.close();
-  }
+    )
+    .run(INDEX_META_KEY, JSON.stringify(meta));
 }
 
 export function readBooleanMetadata(conn: SqliteConnection, key: string): boolean | undefined {
