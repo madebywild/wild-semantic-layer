@@ -68,4 +68,22 @@ describe("SQLite indexer", () => {
     expect(hashNote(note)).toBe(hashNote(note));
     expect(hashNote({ ...note, body: "changed" })).not.toBe(hashNote(note));
   });
+
+  it("skips wikilink-shaped prose when the target note does not exist", async () => {
+    const tv = createTempVault({
+      "vault/root.md": noteMarkdown({
+        id: "root",
+        body: "# Root\n\nExternal notation [[not-a-vault-note]] must not create a dangling edge.\n",
+      }),
+    });
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await buildIndex(config, { full: true }, { embedder: createFakeEmbedder() });
+      await withConnectionForConfig(config, (db) => {
+        expect(db.prepare("SELECT count(*) AS count FROM links").get()).toMatchObject({ count: 0 });
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
 });

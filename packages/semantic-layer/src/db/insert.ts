@@ -175,10 +175,18 @@ export function insertHierarchyEdges(conn: SqliteConnection, edges: HierarchyEdg
 }
 
 export function insertWikilinkEdges(conn: SqliteConnection, edges: WikilinkEdge[]): void {
-  const statement = conn.prepare(
-    "INSERT OR IGNORE INTO links(source_id, target_id, anchor) VALUES (?, ?, ?)",
-  );
-  for (const edge of edges) statement.run(edge.source, edge.target, edge.anchor ?? "");
+  // LadybugDB's prior MATCH-based insertion silently skipped an edge unless both endpoint notes
+  // existed. Preserve that behavior while keeping relational foreign keys strict: prose can
+  // contain bracket syntax that looks like a wikilink but is not a vault note relationship.
+  const statement = conn.prepare(`
+    INSERT OR IGNORE INTO links(source_id, target_id, anchor)
+    SELECT ?, ?, ?
+     WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?)
+       AND EXISTS (SELECT 1 FROM notes WHERE id = ?)
+  `);
+  for (const edge of edges) {
+    statement.run(edge.source, edge.target, edge.anchor ?? "", edge.source, edge.target);
+  }
 }
 
 export function updateChunkEmbeddings(
