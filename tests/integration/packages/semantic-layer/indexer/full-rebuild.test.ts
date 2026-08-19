@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dbFileForConfig,
   discardPooledDatabase,
@@ -85,6 +85,40 @@ describe("full SQLite rebuild and migration", () => {
             config,
             { query: "recover", mode: "fts" },
             { embedder: createFakeEmbedder() },
+          )
+        ).hits.map((hit) => hit.noteId),
+      ).toContain("root");
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("does not quarantine a healthy index for a message-only embedder failure", async () => {
+    const tv = createTempVault({
+      "vault/root.md": noteMarkdown({ id: "root", body: "# Root\n\nhealthy index token\n" }),
+    });
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const workingEmbedder = createFakeEmbedder();
+      await buildIndex(config, { full: true }, { embedder: workingEmbedder });
+      const embedDocuments = vi.fn(async () => {
+        throw new Error("file is not a database");
+      });
+      const failingEmbedder = { ...workingEmbedder, embedDocuments };
+
+      await expect(
+        buildIndex(config, { full: true }, { embedder: failingEmbedder }),
+      ).rejects.toThrow("file is not a database");
+      expect(embedDocuments).toHaveBeenCalledTimes(1);
+      expect(readdirSync(join(tv.vaultDir, ".semantic-layer"))).not.toContainEqual(
+        expect.stringMatching(/vault\.sqlite(?:-(?:wal|shm))?\.corrupt-/),
+      );
+      expect(
+        (
+          await querySearch(
+            config,
+            { query: "healthy", mode: "fts" },
+            { embedder: workingEmbedder },
           )
         ).hits.map((hit) => hit.noteId),
       ).toContain("root");

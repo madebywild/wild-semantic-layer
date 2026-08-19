@@ -35,20 +35,36 @@ export type IndexCommandResult = {
 export type IndexCommandOptions = {
   full?: boolean;
   embedder?: Embedder;
-  /** Dependency-injection seam for tests that need to reuse an open SQLite connection. */
-  connection?: SqliteConnection;
 };
+
+type InternalIndexCommandOptions = IndexCommandOptions & { connection?: SqliteConnection };
 
 export async function runIndex(
   options: LoadConfigOptions & IndexCommandOptions = {},
 ): Promise<IndexCommandResult> {
-  const { full, embedder, connection, ...loadOptions } = options;
-  return indexResolved(loadConfig(loadOptions), { full, embedder, connection });
+  const { full, embedder, ...loadOptions } = options;
+  return indexResolved(loadConfig(loadOptions), { full, embedder });
 }
 
 export async function indexResolved(
   config: ResolvedConfig,
   options: IndexCommandOptions = {},
+): Promise<IndexCommandResult> {
+  return indexResolvedInternal(config, options);
+}
+
+/** @internal Test seam for exercising multiple index commands on one transaction owner. */
+export async function indexResolvedWithConnection(
+  config: ResolvedConfig,
+  connection: SqliteConnection,
+  options: IndexCommandOptions = {},
+): Promise<IndexCommandResult> {
+  return indexResolvedInternal(config, { ...options, connection });
+}
+
+async function indexResolvedInternal(
+  config: ResolvedConfig,
+  options: InternalIndexCommandOptions,
 ): Promise<IndexCommandResult> {
   const { full, embedder, connection } = options;
 

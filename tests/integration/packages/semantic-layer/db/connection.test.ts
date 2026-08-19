@@ -65,8 +65,15 @@ describe("SQLite connection", () => {
       expect(moved).toHaveLength(1);
       expect(moved[0]).toMatch(/vault\.sqlite\.corrupt-/);
       expect(existsSync(dbPath)).toBe(false);
-      expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(true);
+      expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(false);
       expect(isCorruptionError({ code: "SQLITE_NOTADB" })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 11 })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 267 })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 26 })).toBe(true);
+      expect(
+        isCorruptionError({ code: "ERR_SQLITE_ERROR", message: "malformed database schema" }),
+      ).toBe(true);
+      expect(isCorruptionError({ cause: { code: "ERR_SQLITE_ERROR", errcode: 26 } })).toBe(true);
       expect(isCorruptionError({ code: "SQLITE_BUSY" })).toBe(false);
       expect(isCorruptionError(new Error("permission denied"))).toBe(false);
     } finally {

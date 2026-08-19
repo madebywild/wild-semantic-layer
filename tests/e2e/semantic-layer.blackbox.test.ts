@@ -11,6 +11,7 @@ const containerRoot = "/workspaces";
 const fixtureLastVerified = new Date().toISOString().slice(0, 10);
 
 let tmpRoot = "";
+let packedTarball = "";
 
 type ScenarioWorkspace = {
   containerDir: string;
@@ -64,6 +65,7 @@ describe("semantic-layer CLI blackbox", () => {
     );
     const tarball = readdirSync(packDir).find((file) => file.endsWith(".tgz"));
     if (!tarball) throw new Error("package tarball was not created");
+    packedTarball = join(packDir, tarball);
 
     const workspacesDir = join(tmpRoot, "workspaces");
     scenarios = {
@@ -98,6 +100,14 @@ describe("semantic-layer CLI blackbox", () => {
   afterAll(async () => {
     await container?.stop();
     rmSync(tmpRoot, { force: true, recursive: true });
+  });
+
+  it("keeps test-only database types out of the packed public declaration", () => {
+    const declaration = execFileSync("tar", ["-xOf", packedTarball, "package/dist/index.d.ts"], {
+      encoding: "utf8",
+    });
+    expect(declaration).not.toContain("node:sqlite");
+    expect(declaration).not.toContain("DatabaseSync");
   });
 
   it("validates monorepo TypeScript service docs with custom code-ref sidecar output", async () => {
@@ -417,11 +427,14 @@ describe("semantic-layer CLI blackbox", () => {
   });
 
   async function install(workspace: ScenarioWorkspace) {
+    // These packed-package scenarios exercise the documented FTS-only fallback. Keep the
+    // optional model/ONNX download out of the blackbox install; vector paths run in integration.
     const installResult = await run(workspace, [
       "npm",
       "install",
       "--no-audit",
       "--fund=false",
+      "--omit=optional",
       "--prefer-offline",
       "--loglevel=error",
     ]);

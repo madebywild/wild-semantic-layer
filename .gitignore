@@ -147,9 +147,7 @@ vite.config.ts.timestamp-*
 **/.semantic-layer/vault.sqlite
 **/.semantic-layer/vault.sqlite-wal
 **/.semantic-layer/vault.sqlite-shm
+**/.semantic-layer/vault.sqlite*.corrupt-*
 # Legacy LadybugDB artifacts remain ignored so existing vaults do not become dirty
 # during the one-way SQLite migration.
-**/.semantic-layer/vault.lbug
-**/.semantic-layer/vault.lbug.wal
-**/.semantic-layer/vault.lbug.meta.json
-**/.semantic-layer/vault.lbug.meta.json.tmp
+**/.semantic-layer/vault.lbug*

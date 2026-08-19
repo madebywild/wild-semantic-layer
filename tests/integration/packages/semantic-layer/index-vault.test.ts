@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runIndex } from "../../../../packages/semantic-layer/src/commands/index.js";
+import {
+  indexResolvedWithConnection,
+  runIndex,
+} from "../../../../packages/semantic-layer/src/commands/index.js";
 import { loadConfig } from "../../../../packages/semantic-layer/src/config.js";
 import { withConnectionForConfig } from "../../../../packages/semantic-layer/src/db/connection.js";
 import { createFakeEmbedder, createTempVault } from "../../../helpers.js";
@@ -357,7 +360,7 @@ describe("runIndex", () => {
 
       // Reuse the injected SQLite connection so both builds exercise one transaction owner.
       await withConnectionForConfig(config, async (conn) => {
-        const result1 = await runIndex({ cwd: tv.dir, embedder, connection: conn });
+        const result1 = await indexResolvedWithConnection(config, conn, { embedder });
         expect(result1.noteCount).toBe(2);
         const content1 = readFileSync(result1.outFile, "utf8");
 
@@ -368,7 +371,7 @@ describe("runIndex", () => {
           "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha, beta]\n",
         );
 
-        const result2 = await runIndex({ cwd: tv.dir, embedder, connection: conn });
+        const result2 = await indexResolvedWithConnection(config, conn, { embedder });
         expect(result2.noteCount).toBe(3);
         const content2 = readFileSync(result2.outFile, "utf8");
         expect(content2).not.toBe(content1);

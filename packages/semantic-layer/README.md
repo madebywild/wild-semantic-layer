@@ -488,14 +488,15 @@ switch `search.embedding.provider` to `gemini` for vector search.
 ## Migrating to 2.0
 
 Version `2.0.0` replaces LadybugDB with the single-file SQLite index. Run
-`semantic-layer index --full` once in each vault to create
-`vault/.semantic-layer/vault.sqlite`. Existing `vault.lbug*` files are left
-untouched deliberately; after the successful build the CLI emits a one-time
-notice that they are derived and safe to remove. Update custom ignore rules to
-ignore `vault.sqlite`, `vault.sqlite-wal`, and `vault.sqlite-shm`, remove any
-LadybugDB dependency or lifecycle calls such as `closePooledDatabases()`, and
-run under Node 22.16+ (or Node 24). See [`MIGRATIONS.md`](MIGRATIONS.md) for the
-full checklist.
+under Node 22.16+ (or Node 24), remove direct LadybugDB dependencies and
+lifecycle calls such as `closePooledDatabases()`, then compile library
+consumers against the v2 result types. Canary one vault with
+`semantic-layer check` followed by `semantic-layer index --full` before the
+broader rollout. Existing `vault.lbug*` files are left untouched deliberately,
+so retaining them through the acceptance window gives consumers a simple v1
+rollback path. Update custom ignore rules for `vault.sqlite`, its WAL/SHM and
+quarantine variants, and `vault.lbug*`. See [`MIGRATIONS.md`](MIGRATIONS.md)
+for the field mapping and full rollout/rollback checklist.
 
 ## Migrating to 0.3
 

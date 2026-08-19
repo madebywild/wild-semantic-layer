@@ -271,6 +271,30 @@ describe("candidateNoteIdsSinceSha", () => {
   });
 });
 
+describe("generated index artifact ignores", () => {
+  it("keeps active, quarantined, and legacy database artifacts out of git", () => {
+    for (const file of [
+      "vault.sqlite",
+      "vault.sqlite-wal",
+      "vault.sqlite-shm",
+      "vault.sqlite.corrupt-2026-08-19",
+      "vault.sqlite-wal.corrupt-2026-08-19",
+      "vault.sqlite-shm.corrupt-2026-08-19",
+      "vault.lbug",
+      "vault.lbug.wal",
+      "vault.lbug.wal.checkpoint",
+      "vault.lbug.meta.json",
+      "vault.lbug.meta.json.tmp",
+    ]) {
+      expect(() =>
+        execFileSync("git", ["check-ignore", "--quiet", `fixtures/vault/.semantic-layer/${file}`], {
+          cwd: process.cwd(),
+        }),
+      ).not.toThrow();
+    }
+  });
+});
+
 describe("diffVaultFilesSinceSha — repoRoot as a monorepo subdirectory", () => {
   // `repoRoot` (the cwd git runs in) is often a package subdirectory, not the git top-level —
   // e.g. a monorepo app with its own `root: .` pointing at itself. `git diff --name-status`

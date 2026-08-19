@@ -11,35 +11,95 @@ Node version and for low-level index result/lifecycle APIs; vault note format,
 
 Run Node `>=22.16.0` (or Node 24). Although `node:sqlite` appears in earlier
 Node 22 releases, the official Node 22.13 build does not include SQLite FTS5,
-which this index requires. Installers enforce this through `engines.node`.
+which this index requires. The package declares this through `engines.node`;
+npm warns by default, so enable `engine-strict` in CI if an incompatible runtime
+must fail at install time.
 
-### Migrate each vault
+### Recommended rollout and rollback
 
-1. Upgrade the package and remove any direct `@ladybugdb/core` dependency.
-2. Run `semantic-layer index --full`. It creates
+1. Upgrade development, CI, and production runtimes while still on v1.1.0.
+   Node 24 is the simplest common target.
+2. Upgrade `@madebywild/semantic-layer` to v2 and remove any direct
+   `@ladybugdb/core` dependency or Ladybug-specific bundler/native-package
+   configuration.
+3. Apply the library/JSON field changes below and compile the consumer before
+   rebuilding any vault.
+4. On one canary vault, run `semantic-layer check`, then
+   `semantic-layer index --full`. The latter creates
    `vault/.semantic-layer/vault.sqlite`, containing the graph/search tables and
    index metadata in one database.
-3. Keep existing `vault/.semantic-layer/vault.lbug*` files until the SQLite
-   build succeeds. They are deliberately never deleted or mutated. The first
-   successful migration emits a one-time message that they are derived and
-   safe to remove manually.
-4. Add the SQLite artifacts to custom ignore files:
+5. Verify representative `search --mode fts`, vector/hybrid search when the
+   embedder is available, and graph commands before rolling out other vaults.
+   Run only one full v2 index build per vault at a time.
+6. Keep existing `vault/.semantic-layer/vault.lbug*` files through the rollback
+   window. v2 deliberately never deletes or mutates them, so rollback is:
+   repin v1.1.0, restore its Node/runtime deployment if necessary, and use the
+   existing Ladybug index. No SQLite-to-Ladybug data conversion is required.
+7. Remove `vault.lbug*` manually only after the v2 index has been accepted.
+   The first successful migration emits a one-time message that the files are
+   derived and safe to remove.
 
-   ```gitignore
-   **/.semantic-layer/vault.sqlite
-   **/.semantic-layer/vault.sqlite-wal
-   **/.semantic-layer/vault.sqlite-shm
-   ```
+### Generated files and ignore rules
 
-   WAL and SHM files are transient SQLite sidecars, not separate durable
-   metadata. Continue ignoring `vault.lbug*` while legacy artifacts remain.
+Keep both generations ignored during the rollback window. Add these rules to
+custom ignore files:
 
-### API and operational changes
+```gitignore
+**/.semantic-layer/vault.sqlite
+**/.semantic-layer/vault.sqlite-wal
+**/.semantic-layer/vault.sqlite-shm
+**/.semantic-layer/vault.sqlite*.corrupt-*
+**/.semantic-layer/vault.lbug*
+```
 
-- `BuildIndexResult` now exposes only `{ indexPath }`; metadata is stored in
-  SQLite rather than a `.meta.json` sidecar.
-- LadybugDB-specific lifecycle APIs and connection/checkpoint workarounds are
-  removed. Do not call `closePooledDatabases()` to manage index durability.
+WAL and SHM files are transient SQLite sidecars, not separate durable metadata.
+`vault.sqlite*.corrupt-*` files are quarantined derived state; keep them for
+diagnosis or remove them after a successful rebuild.
+
+### Library and `--json` field migration
+
+`BuildIndexResult` now exposes only `{ indexPath }`; metadata is stored in
+SQLite rather than a `.meta.json` sidecar. `runIndex()` and
+`semantic-layer index --json` use the same new layout:
+
+| v1.1 field/API | v2 replacement |
+| --- | --- |
+| `result.db?.dbFile` | `result.db?.indexPath` |
+| `result.db?.metaFile` | Removed; metadata is inside `vault.sqlite` |
+| `result.db?.mode` | `result.build?.mode` |
+| `result.db?.ftsOnly` | `result.build?.ftsOnly` |
+| `result.db?.notesIndexed` / `notesRemoved` | `result.build?.notesIndexed` / `notesRemoved` |
+| `result.db?.noteCount` / `chunkCount` | `result.build?.noteCount` / `chunkCount` |
+| `closePooledDatabases()` | Remove the call; SQLite lifecycle is process-managed |
+| `connection: LadybugConnection` test seam | Remove it; public index commands manage SQLite internally |
+
+Before:
+
+```ts
+import { closePooledDatabases, runIndex } from "@madebywild/semantic-layer";
+
+const result = await runIndex({ cwd: process.cwd() });
+console.log(result.db?.dbFile, result.db?.mode);
+await closePooledDatabases();
+```
+
+After:
+
+```ts
+import { runIndex } from "@madebywild/semantic-layer";
+
+const result = await runIndex({ cwd: process.cwd() });
+console.log(result.db?.indexPath, result.build?.mode);
+```
+
+The SQLite pool closes its current handle when switching index paths and at
+process exit. If a test previously called `closePooledDatabases()` so it could
+delete the active vault directory, isolate that indexed-vault test in a child
+process (or set `search.enabled: false` when the test does not exercise search)
+and remove the directory after that process exits.
+
+### Operational changes
+
 - `search.enabled: false` remains database-free: `index` writes only
   `HIERARCHY.md` and `code-refs.json`.
 - FTS uses SQLite FTS5 maintained by triggers. Vectors are Float32 BLOBs and

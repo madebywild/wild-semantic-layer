@@ -44,15 +44,29 @@ export function openDatabase(dbPath: string): SqliteConnection {
 }
 
 export function isCorruptionError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
+  const candidate = error as {
+    cause?: unknown;
+    code?: unknown;
+    errcode?: unknown;
+    message?: unknown;
+  };
   const code = String(candidate?.code ?? "");
+  const errcode = Number(candidate?.errcode);
   const message = String(candidate?.message ?? error ?? "");
-  return (
-    /SQLITE_(?:CORRUPT(?:_VTAB)?|NOTADB)/i.test(code) ||
+  const primaryErrcode = Number.isInteger(errcode) ? errcode & 0xff : undefined;
+  if (/^SQLITE_(?:CORRUPT(?:_[A-Z0-9_]+)?|NOTADB)$/i.test(code)) return true;
+  if (primaryErrcode === 11 || primaryErrcode === 26) return true;
+  if (
+    code === "ERR_SQLITE_ERROR" &&
     /database disk image is malformed|file is not a database|malformed database schema/i.test(
       message,
     )
-  );
+  ) {
+    return true;
+  }
+  return candidate?.cause !== undefined && candidate.cause !== error
+    ? isCorruptionError(candidate.cause)
+    : false;
 }
 
 /** Quarantines every SQLite artifact only for corruption-class derived-state recovery. */

@@ -5,7 +5,7 @@ desc: Test-suite layers and isolation guarantees for the semantic-layer package.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 ttl_days: 180
 tags: [meta, testing]
 layer: demo
@@ -30,8 +30,11 @@ Four vitest projects cover the package, from fastest to most isolated:
   sidecar output, a simple JavaScript consumer refinement lifecycle, and
   drift or migration failures that must not overwrite generated indexes.
   The container exercises Node's built-in SQLite and FTS5 on the supported
-  Node 24 runtime. The FTS-only fallback remains covered with an unavailable
-  embedder fixture; it is independent of the database runtime.
+  Node 24 runtime. It also inspects the packed public declaration so internal
+  SQLite connection types cannot leak into consumers that do not use indexing.
+  Packed consumers omit the optional model/ONNX dependency, proving the
+  FTS-only fallback without making install time depend on a model runtime;
+  vector behavior remains covered by source-level integration tests.
 
 The package requires Node `>=22.16.0`: the built-in SQLite API is available in
 Node 22, but official Node 22.13 builds do not include FTS5. Node 22.16+ and
@@ -40,4 +43,5 @@ Node 24 are the supported validation targets. SQLite state is one
 and reopen it. Integration coverage includes full and incremental indexing,
 FTS-only fallback, metadata/config drift, filters and graph queries,
 pre-transaction embedding failures, FTS integrity recovery, corruption
-recovery, and migration that preserves legacy `.lbug` artifacts.
+recovery (including rejection of message-only false positives), and migration
+that preserves and gitignores legacy `.lbug` artifacts.

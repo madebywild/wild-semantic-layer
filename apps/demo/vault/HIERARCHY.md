@@ -12,5 +12,5 @@ Sizes are rough token estimates (chars/4). For large notes, prefer
   - **demo.runtime** - Runtime contract. Runtime assumptions for the demo app. (~36 tok)
 - **meta** - Metadata. Meta notes for contributors and agents. (~20 tok)
   - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault. (~224 tok)
-  - **meta.search** - Search index. Local full-text + vector search over this vault. (~607 tok)
-  - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package. (~468 tok)
+  - **meta.search** - Search index. Local full-text + vector search over this vault. (~644 tok)
+  - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package. (~544 tok)

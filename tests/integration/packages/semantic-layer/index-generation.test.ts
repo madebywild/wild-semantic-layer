@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { indexResolved } from "../../../../packages/semantic-layer/src/commands/index.js";
+import { indexResolvedWithConnection } from "../../../../packages/semantic-layer/src/commands/index.js";
 import { loadConfig } from "../../../../packages/semantic-layer/src/config.js";
 import { withConnectionForConfig } from "../../../../packages/semantic-layer/src/db/connection.js";
 import { runIndex } from "../../../../packages/semantic-layer/src/index.js";
@@ -88,7 +88,7 @@ describe("index generation (integration)", () => {
 
       // Reuse the injected SQLite connection across both builds.
       await withConnectionForConfig(config, async (conn) => {
-        const result1 = await indexResolved(config, { embedder, connection: conn });
+        const result1 = await indexResolvedWithConnection(config, conn, { embedder });
 
         // Add a note and re-run
         writeFileSync(join(tv.vaultDir, "alpha.md"), validNoteMd("alpha"));
@@ -97,7 +97,7 @@ describe("index generation (integration)", () => {
           "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
         );
 
-        const result2 = await indexResolved(config, { embedder, connection: conn });
+        const result2 = await indexResolvedWithConnection(config, conn, { embedder });
         const content2 = readFileSync(result2.outFile, "utf8");
 
         expect(result2.noteCount).toBeGreaterThan(result1.noteCount);

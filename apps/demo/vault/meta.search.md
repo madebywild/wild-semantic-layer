@@ -42,10 +42,12 @@ queries still work.
 
 SQLite runs in WAL mode with `synchronous=FULL`; every index mutation and its
 FTS integrity check share one transaction. Corruption-class failures are
-treated as recoverable derived state: the SQLite artifacts are quarantined and
-the index is rebuilt. Existing `vault.lbug*` artifacts are deliberately left
-untouched during migration; after a successful SQLite build, the CLI reports
-that they are derived and safe to remove.
+identified from SQLite error codes rather than arbitrary component error text,
+then treated as recoverable derived state: the SQLite artifacts are quarantined
+and the index is rebuilt. Quarantine files are gitignored for diagnosis or
+later removal. Existing `vault.lbug*` artifacts are deliberately left untouched
+during migration; after a successful SQLite build, the CLI reports that they
+are derived and safe to remove.
 
 `bench/2026-08-19-beir-sqlite-search.md` records the fresh SQLite ArguAna run:
 17,802 chunks, FTS/vector/hybrid nDCG@10 of 0.3342/0.3442/0.3691, and median
