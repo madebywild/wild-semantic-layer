@@ -81,4 +81,63 @@ describe("SQLite search cache", () => {
       cleanup();
     }
   });
+
+  it("reloads fully, accepts an empty incremental change set, and clears every cache", () => {
+    const { dir, cleanup } = createTempDir();
+    const dbPath = `${dir}/vault.sqlite`;
+    const db = openDatabase(dbPath);
+    try {
+      createSchema(db);
+      insertNote(db, "root", "Root", [1, 0]);
+      db.prepare("INSERT INTO tags(name) VALUES (?)").run("docs");
+      db.prepare("INSERT INTO note_tags(note_id, tag) VALUES (?, ?)").run("root", "docs");
+      db.prepare("INSERT INTO audiences(name) VALUES (?)").run("agents");
+      db.prepare("INSERT INTO note_audiences(note_id, audience) VALUES (?, ?)").run(
+        "root",
+        "agents",
+      );
+
+      const initial = getSearchCache(db, dbPath);
+      expect(initial.notes.get("root")?.tags).toEqual(new Set(["docs"]));
+      expect(initial.notes.get("root")?.audience).toEqual(new Set(["agents"]));
+      refreshSearchCache(db, dbPath, []);
+      expect(getSearchCache(db, dbPath)).toBe(initial);
+      refreshSearchCache(db, dbPath);
+      expect(getSearchCache(db, dbPath)).not.toBe(initial);
+
+      clearSearchCache();
+      expect(getSearchCache(db, dbPath)).not.toBe(initial);
+    } finally {
+      clearSearchCache();
+      db.close();
+      cleanup();
+    }
+  });
+
+  it("rejects a malformed embedding blob instead of scoring corrupt vector data", () => {
+    const { dir, cleanup } = createTempDir();
+    const dbPath = `${dir}/vault.sqlite`;
+    const db = openDatabase(dbPath);
+    try {
+      createSchema(db);
+      db.prepare("INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        "root",
+        "Root",
+        "Root description",
+        "active",
+        "owner",
+        "2026-08-18",
+        90,
+        "root.md",
+      );
+      db.prepare(
+        "INSERT INTO chunks (id, note_id, chunk_index, heading_path, text, search_text, modality, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run("root#0", "root", 0, "", "text", "text", "text", Buffer.from([1, 2, 3]));
+      expect(() => getSearchCache(db, dbPath)).toThrow(/invalid Float32 embedding BLOB/);
+    } finally {
+      clearSearchCache(dbPath);
+      db.close();
+      cleanup();
+    }
+  });
 });

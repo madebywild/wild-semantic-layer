@@ -1,10 +1,13 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   dbFileForConfig,
+  discardPooledDatabase,
   isCorruptionError,
+  legacyIndexArtifacts,
   openDatabase,
   quarantineDatabaseArtifacts,
+  recoverCorruptIndex,
   withConnection,
   withConnectionForConfig,
 } from "../../../../../packages/semantic-layer/src/db/connection.js";
@@ -63,7 +66,53 @@ describe("SQLite connection", () => {
       expect(moved[0]).toMatch(/vault\.sqlite\.corrupt-/);
       expect(existsSync(dbPath)).toBe(false);
       expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(true);
+      expect(isCorruptionError({ code: "SQLITE_NOTADB" })).toBe(true);
+      expect(isCorruptionError({ code: "SQLITE_BUSY" })).toBe(false);
       expect(isCorruptionError(new Error("permission denied"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("finds all legacy artifacts without modifying them", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      const legacy = `${dir}/vault/.semantic-layer/vault.lbug`;
+      mkdirSync(`${dir}/vault/.semantic-layer`, { recursive: true });
+      for (const suffix of ["", ".wal", ".wal.checkpoint", ".meta.json", ".meta.json.tmp"])
+        writeFileSync(`${legacy}${suffix}`, "legacy");
+
+      expect(legacyIndexArtifacts(config)).toEqual([
+        legacy,
+        `${legacy}.wal`,
+        `${legacy}.wal.checkpoint`,
+        `${legacy}.meta.json`,
+        `${legacy}.meta.json.tmp`,
+      ]);
+      expect(existsSync(legacy)).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("quarantines corruption raised inside a connection callback", async () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const dbPath = `${dir}/vault.sqlite`;
+      await expect(
+        withConnection(dbPath, () => {
+          throw Object.assign(new Error("malformed database schema"), { code: "SQLITE_CORRUPT" });
+        }),
+      ).rejects.toThrow(/malformed database schema/);
+      expect(existsSync(dbPath)).toBe(false);
+
+      await withConnection(dbPath, (db) => db.exec("CREATE TABLE recovery_check (value TEXT)"));
+      discardPooledDatabase(`${dir}/different.sqlite`);
+      expect(existsSync(dbPath)).toBe(true);
+      await expect(
+        recoverCorruptIndex(createResolvedConfig({ repoRoot: dir, vaultDir: dir })),
+      ).resolves.toEqual([]);
     } finally {
       cleanup();
     }

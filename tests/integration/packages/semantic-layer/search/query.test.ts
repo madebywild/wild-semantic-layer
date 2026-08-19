@@ -1,9 +1,13 @@
-import { writeFileSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runSearch } from "../../../../../packages/semantic-layer/src/commands/search.js";
 import { loadConfig } from "../../../../../packages/semantic-layer/src/config.js";
-import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import {
+  dbFileForConfig,
+  discardPooledDatabase,
+  withConnectionForConfig,
+} from "../../../../../packages/semantic-layer/src/db/connection.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import {
   readIndexMeta,
@@ -161,6 +165,21 @@ describe("querySearch — modes", () => {
         { embedder },
       );
       expect(fallback.hits.map((hit) => hit.noteId)).toContain("beta");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
+  it("returns no FTS hits for punctuation-only user text", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      await expect(
+        querySearch(config, { query: '— !? "', mode: "fts" }, { embedder }),
+      ).resolves.toMatchObject({ hits: [] });
     } finally {
       await cleanup(tv);
     }
@@ -340,6 +359,55 @@ The widgets content too.
     }
   });
 
+  it("excludes vector candidates when each supplied filter misses", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": `---
+id: alpha
+title: Alpha
+desc: Alpha note.
+status: active
+owner: tester@example.com
+last_verified: 2026-05-13
+ttl_days: 365
+tags: [widgets]
+audience: [eng]
+---
+
+# Alpha
+
+widgets
+`,
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      const result = await querySearch(
+        config,
+        {
+          query: "widgets",
+          mode: "vector",
+          status: "deprecated",
+          tags: ["missing"],
+          audience: ["missing"],
+        },
+        { embedder },
+      );
+      expect(result.hits).toEqual([]);
+      await expect(
+        querySearch(config, { query: "widgets", mode: "vector", tags: ["missing"] }, { embedder }),
+      ).resolves.toMatchObject({ hits: [] });
+      await expect(
+        querySearch(
+          config,
+          { query: "widgets", mode: "vector", audience: ["missing"] },
+          { embedder },
+        ),
+      ).resolves.toMatchObject({ hits: [] });
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
   it("respects an explicit limit", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: "The widgets number one.\n" }),
@@ -442,6 +510,29 @@ describe("querySearch — staleness and rebuild", () => {
       // would actually resolve to (the local provider's default) — they don't match.
       const result = await querySearch(config, { query: "alpha", mode: "fts" });
       expect(result.stale).toBe(true);
+    } finally {
+      await cleanup(tv);
+    }
+  });
+});
+
+describe("querySearch — derived-index recovery", () => {
+  it("quarantines a corrupt SQLite file, rebuilds, and retries the requested search", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "recoverable search term\n" }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      const dbPath = dbFileForConfig(config);
+      discardPooledDatabase(dbPath);
+      writeFileSync(dbPath, "not a SQLite database");
+
+      const result = await querySearch(config, { query: "recoverable", mode: "fts" }, { embedder });
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+      expect(readdirSync(join(tv.vaultDir, ".semantic-layer"))).toContainEqual(
+        expect.stringMatching(/vault\.sqlite\.corrupt-/),
+      );
     } finally {
       await cleanup(tv);
     }
