@@ -5,7 +5,7 @@ desc: Local full-text + vector search over this vault.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 ttl_days: 180
 tags: [meta, search]
 layer: demo
@@ -34,6 +34,12 @@ after successful writes and reloading when SQLite's data version changes.
 Embeddings are Float32 BLOBs and vector retrieval is exact cosine similarity;
 there is no native database module or vector extension to install.
 
+FTS accepts ordinary user text rather than raw FTS5 syntax. It safely quotes
+Unicode tokens, deduplicates them, removes a conservative set of common English
+function words, and OR-composes the remaining terms. If filtering removes every
+term, it falls back to the safe deduplicated tokens so short stopword-only
+queries still work.
+
 SQLite runs in WAL mode with `synchronous=FULL`; every index mutation and its
 FTS integrity check share one transaction. Corruption-class failures are
 treated as recoverable derived state: the SQLite artifacts are quarantined and
@@ -41,7 +47,8 @@ the index is rebuilt. Existing `vault.lbug*` artifacts are deliberately left
 untouched during migration; after a successful SQLite build, the CLI reports
 that they are derived and safe to remove.
 
-The committed BEIR report records historical LadybugDB measurements. Do not
-compare those numbers with SQLite until a fresh run records its environment,
-method, and results; the benchmark harness also documents FiQA2018 support for
-the 57k-document scale target.
+`bench/2026-08-19-beir-sqlite-search.md` records the fresh SQLite ArguAna run:
+17,802 chunks, FTS/vector/hybrid nDCG@10 of 0.3342/0.3442/0.3691, and median
+latencies of 52.9/83.8/139.7 ms. The attempted 57,638-document FiQA run was
+stopped after an overnight host suspension invalidated its build timing before
+SQLite insertion began, so the report makes no FiQA performance claim.
