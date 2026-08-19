@@ -1,195 +1,136 @@
-import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  dbFileForConfig,
+  openDatabase,
+} from "../../../../../packages/semantic-layer/src/db/connection.js";
+import {
+  buildStalenessReasons,
+  configStalenessReasons,
   embedderMeta,
-  indexMetaPath,
-  isIndexStale,
-  readIndexMeta,
-  writeIndexMeta,
+  embeddingStalenessReason,
   type IndexMeta,
+  isIndexStale,
+  readBooleanMetadata,
+  readIndexMeta,
+  writeBooleanMetadata,
+  writeIndexMeta,
 } from "../../../../../packages/semantic-layer/src/db/meta.js";
-import { SCHEMA_VERSION } from "../../../../../packages/semantic-layer/src/db/schema.js";
-import type { Embedder } from "../../../../../packages/semantic-layer/src/search/embedder.js";
+import {
+  createSchema,
+  SCHEMA_VERSION,
+} from "../../../../../packages/semantic-layer/src/db/schema.js";
 import { createResolvedConfig, createTempDir } from "../../../../helpers.js";
 
-function fakeEmbedder(id: string, dimensions: number): Embedder {
-  return {
-    id,
-    dimensions,
-    embedDocuments: (texts) => Promise.resolve(texts.map(() => new Array(dimensions).fill(0))),
-    embedQuery: () => Promise.resolve(new Array(dimensions).fill(0)),
-  };
-}
-
-function sampleMeta(overrides?: Partial<IndexMeta>): IndexMeta {
+function meta(config: ReturnType<typeof createResolvedConfig>): IndexMeta {
   return {
     schemaVersion: SCHEMA_VERSION,
-    vaultDir: "/tmp/test-repo/vault",
-    lastIndexedSha: "abc123",
+    vaultDir: config.vaultDir,
     lastIndexedAt: new Date().toISOString(),
-    embedding: { kind: "embedder", id: "local:nomic-ai/nomic-embed-text-v1.5", dimensions: 512 },
+    embedding: { kind: "fts-only" },
     chunking: { strategy: "heading", maxChunkChars: 2000 },
-    noteContentHashes: {},
-    ...overrides,
+    noteContentHashes: { root: "hash" },
   };
 }
 
-describe("indexMetaPath", () => {
-  it("lives inside the vault directory under .semantic-layer", () => {
-    const config = createResolvedConfig({ vaultDir: "/tmp/test-repo/vault" });
-    expect(indexMetaPath(config)).toBe("/tmp/test-repo/vault/.semantic-layer/vault.lbug.meta.json");
-  });
-});
-
-describe("readIndexMeta / writeIndexMeta", () => {
-  it("round-trips a meta object through the filesystem atomically", () => {
+describe("SQLite index metadata", () => {
+  it("stores metadata inside vault.sqlite with no sidecar", () => {
     const { dir, cleanup } = createTempDir();
     try {
-      const config = createResolvedConfig({
-        repoRoot: dir,
-        vaultDir: `${dir}/vault`,
-      });
-      const meta = sampleMeta({ vaultDir: config.vaultDir });
-      writeIndexMeta(config, meta);
-      const read = readIndexMeta(config);
-      expect(read).toEqual(meta);
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      const db = openDatabase(dbFileForConfig(config));
+      createSchema(db);
+      writeIndexMeta(meta(config), db);
+      expect(readIndexMeta(config, db)).toMatchObject({ noteContentHashes: { root: "hash" } });
+      db.close();
+      expect(readIndexMeta(config)).toMatchObject({ noteContentHashes: { root: "hash" } });
     } finally {
       cleanup();
     }
   });
 
-  it("returns undefined when the meta file is missing", () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const config = createResolvedConfig({
-        repoRoot: dir,
-        vaultDir: `${dir}/vault`,
-      });
-      expect(readIndexMeta(config)).toBeUndefined();
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("returns undefined when the meta file contains invalid JSON", () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const config = createResolvedConfig({
-        repoRoot: dir,
-        vaultDir: `${dir}/vault`,
-      });
-      mkdirSync(`${dir}/vault/.semantic-layer`, { recursive: true });
-      writeFileSync(indexMetaPath(config), "not json");
-      expect(readIndexMeta(config)).toBeUndefined();
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("returns undefined when the meta file is valid JSON with the wrong shape", () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const config = createResolvedConfig({
-        repoRoot: dir,
-        vaultDir: `${dir}/vault`,
-      });
-      mkdirSync(`${dir}/vault/.semantic-layer`, { recursive: true });
-      // Structurally corrupt (e.g. hand-edited): must read as "no meta" so the index
-      // self-heals with a full rebuild instead of crashing downstream.
-      writeFileSync(indexMetaPath(config), "{}");
-      expect(readIndexMeta(config)).toBeUndefined();
-    } finally {
-      cleanup();
-    }
-  });
-});
-
-describe("isIndexStale (the build-time rebuild decision)", () => {
-  it("is stale when the schema version mismatches", () => {
+  it("detects schema and chunking config drift", () => {
     const config = createResolvedConfig();
-    const meta = sampleMeta({ schemaVersion: 999 });
-    expect(isIndexStale(config, meta)).toBe(true);
-  });
-
-  it("is stale when the vault directory changes", () => {
-    const config = createResolvedConfig({ vaultDir: "/new/vault" });
-    const meta = sampleMeta({ vaultDir: "/old/vault" });
-    expect(isIndexStale(config, meta)).toBe(true);
-  });
-
-  it("is stale when chunking strategy changes", () => {
-    const config = createResolvedConfig({
-      search: {
-        ...createResolvedConfig().search,
-        chunking: { strategy: "whole-note", maxChunkChars: 2000 },
-      },
-    });
-    expect(isIndexStale(config, sampleMeta())).toBe(true);
-  });
-
-  it("is stale when maxChunkChars changes", () => {
-    const config = createResolvedConfig({
-      search: {
-        ...createResolvedConfig().search,
-        chunking: { strategy: "heading", maxChunkChars: 1000 },
-      },
-    });
-    expect(isIndexStale(config, sampleMeta())).toBe(true);
-  });
-
-  it("is stale when the embedder id mismatches", () => {
-    const config = createResolvedConfig();
-    const embedder = fakeEmbedder("gemini:gemini-embedding-001", 3072);
-    expect(isIndexStale(config, sampleMeta(), embedder)).toBe(true);
-  });
-
-  it("is stale when the embedder dimensions mismatch", () => {
-    const config = createResolvedConfig();
-    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 768);
-    expect(isIndexStale(config, sampleMeta(), embedder)).toBe(true);
-  });
-
-  it("is stale when an embedder is available but the index was built FTS-only", () => {
-    const config = createResolvedConfig();
-    const meta = sampleMeta({ embedding: { kind: "fts-only" } });
-    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 512);
-    expect(isIndexStale(config, meta, embedder)).toBe(true);
-  });
-
-  it("is stale when no embedder is available but the index has embeddings", () => {
-    const config = createResolvedConfig();
-    expect(isIndexStale(config, sampleMeta())).toBe(true);
-  });
-
-  it("is fresh when an FTS-only index meets a missing embedder", () => {
-    const config = createResolvedConfig();
-    const meta = sampleMeta({ embedding: { kind: "fts-only" } });
-    expect(isIndexStale(config, meta)).toBe(false);
-  });
-
-  it("is fresh when everything matches, even without a stored SHA", () => {
-    // Git state is not part of the rebuild decision: content hashes reconcile the vault.
-    const config = createResolvedConfig();
-    const meta = sampleMeta({
-      vaultDir: config.vaultDir,
-      lastIndexedSha: undefined,
-      embedding: { kind: "fts-only" },
-    });
-    expect(isIndexStale(config, meta)).toBe(false);
-  });
-});
-
-describe("embedderMeta", () => {
-  it("returns the fts-only marker when no embedder is given", () => {
+    const current = { ...meta(config), vaultDir: config.vaultDir };
+    expect(configStalenessReasons(config, { ...current, schemaVersion: 0 }).join("\n")).toMatch(
+      /schema version/,
+    );
+    expect(
+      configStalenessReasons(config, {
+        ...current,
+        chunking: { strategy: "whole-note", maxChunkChars: 100 },
+      }),
+    ).toContain("chunking config changed since the index was built");
     expect(embedderMeta()).toEqual({ kind: "fts-only" });
   });
 
-  it("returns kind, id and dimensions for an embedder", () => {
-    const embedder = fakeEmbedder("local:nomic-ai/nomic-embed-text-v1.5", 512);
-    expect(embedderMeta(embedder)).toEqual({
-      kind: "embedder",
-      id: embedder.id,
-      dimensions: embedder.dimensions,
-    });
+  it("treats absent, uninitialized, malformed, and invalid metadata as unavailable", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      expect(readIndexMeta(config)).toBeUndefined();
+
+      const db = openDatabase(dbFileForConfig(config));
+      expect(readIndexMeta(config, db)).toBeUndefined();
+      expect(readBooleanMetadata(db, "missing")).toBeUndefined();
+      createSchema(db);
+      db.prepare("INSERT INTO metadata(key, value) VALUES (?, ?)").run("index_meta", "{");
+      expect(readIndexMeta(config, db)).toBeUndefined();
+      db.prepare("UPDATE metadata SET value = ? WHERE key = ?").run(
+        JSON.stringify({ schemaVersion: "wrong" }),
+        "index_meta",
+      );
+      expect(readIndexMeta(config, db)).toBeUndefined();
+      writeBooleanMetadata(db, "migration_done", true);
+      expect(readBooleanMetadata(db, "migration_done")).toBe(true);
+      writeBooleanMetadata(db, "migration_done", false);
+      expect(readBooleanMetadata(db, "migration_done")).toBe(false);
+      db.close();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("reports vault and embedder drift with actionable reasons", () => {
+    const config = createResolvedConfig();
+    const indexed = {
+      ...meta(config),
+      embedding: { kind: "embedder" as const, id: "fake:old", dimensions: 2 },
+    };
+    expect(configStalenessReasons(config, { ...indexed, vaultDir: "/another-vault" })).toContain(
+      "index was built for a different vault directory",
+    );
+    expect(embeddingStalenessReason(indexed, undefined)).toContain("no embedder is available");
+    expect(embeddingStalenessReason(indexed, { id: "fake:new", dimensions: 3 })).toContain(
+      'built with embedder "fake:old"',
+    );
+    expect(
+      embeddingStalenessReason(
+        { ...indexed, embedding: { kind: "fts-only" } },
+        {
+          id: "fake:new",
+          dimensions: 3,
+        },
+      ),
+    ).toContain("built without embeddings");
+    expect(
+      embeddingStalenessReason({ ...indexed, embedding: { kind: "fts-only" } }, undefined),
+    ).toBeUndefined();
+    expect(
+      buildStalenessReasons(config, indexed, {
+        id: "fake:old",
+        dimensions: 2,
+        embedDocuments: async () => [],
+        embedQuery: async () => [],
+      }),
+    ).toEqual([]);
+    expect(isIndexStale(config, { ...indexed, schemaVersion: 0 })).toBe(true);
+    expect(
+      embedderMeta({
+        id: "fake:new",
+        dimensions: 3,
+        embedDocuments: async () => [],
+        embedQuery: async () => [],
+      }),
+    ).toEqual({ kind: "embedder", id: "fake:new", dimensions: 3 });
   });
 });

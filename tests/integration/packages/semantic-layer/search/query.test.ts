@@ -1,9 +1,13 @@
-import { writeFileSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runSearch } from "../../../../../packages/semantic-layer/src/commands/search.js";
 import { loadConfig } from "../../../../../packages/semantic-layer/src/config.js";
-import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
+import {
+  dbFileForConfig,
+  discardPooledDatabase,
+  withConnectionForConfig,
+} from "../../../../../packages/semantic-layer/src/db/connection.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import {
   readIndexMeta,
@@ -29,18 +33,12 @@ function setupVault(files: Record<string, string>) {
   return { tv, config };
 }
 
-function cleanup(_tv: TempVault): void {
-  // Intentionally a no-op: LadybugDB 0.18.2's native close can return before the WAL checkpoint
-  // is fully finished, and deleting the temp directory while checkpointing is still in progress
-  // races with the filesystem and flakes/corrupts later tests. Rely on the OS /tmp cleaner.
+function cleanup(tv: TempVault): void {
+  tv.cleanup();
 }
 
-// LadybugDB 0.18.2's FTS tokenizer does not treat newlines as separators, so tokens touching a
-// line break would fuse into unsearchable compounds; the indexer stores a newline-normalized
-// `searchText` copy for FTS (see schema.ts/insert.ts and the pinning test in
-// indexer/full-rebuild.test.ts). These fixtures deliberately put the searched term mid-line
-// anyway, so they assert plain FTS behavior and stay meaningful even if the quirk is fixed
-// upstream and the normalization is removed.
+// SQLite FTS5 tokenizes normalized search text; fixtures assert application behavior rather than
+// implementation-specific query grammar.
 const SEARCHABLE_WIDGETS_BODY = "## Section\n\nThe widgets are great.\n";
 
 describe("querySearch — cold start", () => {
@@ -110,6 +108,78 @@ describe("querySearch — modes", () => {
       expect(result.mode).toBe("fts");
       expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
       expect(result.hits.map((hit) => hit.noteId)).not.toContain("beta");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
+  it("treats ordinary punctuation and unmatched quotes as safe user text", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({
+        id: "alpha",
+        body: "## Section\n\nwidgets: reliable retrieval\n",
+      }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      const result = await querySearch(
+        config,
+        { query: 'widgets: "unmatched', mode: "fts" },
+        { embedder },
+      );
+      expect(result.mode).toBe("fts");
+      // Natural-language tokens are safely OR-composed: punctuation and an absent second token
+      // must not make the relevant first-token match disappear.
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
+  it("deduplicates function words while preserving all-stopword queries", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({
+        id: "alpha",
+        body: "## Section\n\nwidgets are reliable retrieval tools\n",
+      }),
+      "vault/beta.md": noteMarkdown({
+        id: "beta",
+        body: "## Section\n\nto be or not to be\n",
+      }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+
+      const normalized = await querySearch(
+        config,
+        { query: "THE the widgets widgets", mode: "fts" },
+        { embedder },
+      );
+      expect(normalized.hits.map((hit) => hit.noteId)).toContain("alpha");
+
+      const fallback = await querySearch(
+        config,
+        { query: "to be or not", mode: "fts" },
+        { embedder },
+      );
+      expect(fallback.hits.map((hit) => hit.noteId)).toContain("beta");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
+  it("returns no FTS hits for punctuation-only user text", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      await expect(
+        querySearch(config, { query: '— !? "', mode: "fts" }, { embedder }),
+      ).resolves.toMatchObject({ hits: [] });
     } finally {
       await cleanup(tv);
     }
@@ -289,6 +359,55 @@ The widgets content too.
     }
   });
 
+  it("excludes vector candidates when each supplied filter misses", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": `---
+id: alpha
+title: Alpha
+desc: Alpha note.
+status: active
+owner: tester@example.com
+last_verified: 2026-05-13
+ttl_days: 365
+tags: [widgets]
+audience: [eng]
+---
+
+# Alpha
+
+widgets
+`,
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      const result = await querySearch(
+        config,
+        {
+          query: "widgets",
+          mode: "vector",
+          status: "deprecated",
+          tags: ["missing"],
+          audience: ["missing"],
+        },
+        { embedder },
+      );
+      expect(result.hits).toEqual([]);
+      await expect(
+        querySearch(config, { query: "widgets", mode: "vector", tags: ["missing"] }, { embedder }),
+      ).resolves.toMatchObject({ hits: [] });
+      await expect(
+        querySearch(
+          config,
+          { query: "widgets", mode: "vector", audience: ["missing"] },
+          { embedder },
+        ),
+      ).resolves.toMatchObject({ hits: [] });
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
   it("respects an explicit limit", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: "The widgets number one.\n" }),
@@ -316,10 +435,7 @@ The widgets content too.
 });
 
 describe("querySearch — staleness and rebuild", () => {
-  // LadybugDB 0.18.2's native close can return before its WAL checkpoint is finished. Running the
-  // staleness/rebuild scenarios inside a single vault and a single test body keeps open/close
-  // cycles to a minimum and avoids the cross-test checkpoint races that flake when every scenario
-  // spins up its own temp database.
+  // These scenarios share one vault so the staleness transition is visible from one SQLite index.
   it("detects staleness, rebuilds on demand, and reports a fresh index", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: "Alpha original.\n" }),
@@ -329,8 +445,7 @@ describe("querySearch — staleness and rebuild", () => {
       gitCommitAll(tv.dir, "initial");
       const embedder = createFakeEmbedder();
 
-      // Reuse a single LadybugDB connection for every query in this scenario to avoid the WAL
-      // checkpoint race that flakes when the same test opens and closes the database repeatedly.
+      // Reuse an injected SQLite connection for every query in this scenario.
       await withConnectionForConfig(config, async (conn) => {
         // Cold-build the index and sanity-check that the original content is searchable.
         const coldResult = await querySearch(
@@ -401,21 +516,46 @@ describe("querySearch — staleness and rebuild", () => {
   });
 });
 
+describe("querySearch — derived-index recovery", () => {
+  it("quarantines a corrupt SQLite file, rebuilds, and retries the requested search", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "recoverable search term\n" }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+      const dbPath = dbFileForConfig(config);
+      discardPooledDatabase(dbPath);
+      writeFileSync(dbPath, "not a SQLite database");
+
+      const result = await querySearch(config, { query: "recoverable", mode: "fts" }, { embedder });
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+      expect(readdirSync(join(tv.vaultDir, ".semantic-layer"))).toContainEqual(
+        expect.stringMatching(/vault\.sqlite\.corrupt-/),
+      );
+    } finally {
+      await cleanup(tv);
+    }
+  });
+});
+
 describe("querySearch — embedder mismatches", () => {
   it("fails clearly for vector and hybrid modes against an FTS-only index, but fts mode still works", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({ id: "alpha", body: SEARCHABLE_WIDGETS_BODY }),
     });
     try {
-      // Build a normal index, then hand-rewrite the meta sidecar to claim the "fts-only"
+      // Build a normal index, then hand-rewrite SQLite metadata to claim the "fts-only"
       // embedding identity, matching what the indexer records when the real embedder is
       // unavailable on the build platform.
       const embedder = createFakeEmbedder();
       await buildIndex(config, {}, { embedder });
 
-      const meta = readIndexMeta(config);
-      if (!meta) throw new Error("expected an index meta sidecar");
-      writeIndexMeta(config, { ...meta, embedding: { kind: "fts-only" } });
+      await withConnectionForConfig(config, (conn) => {
+        const meta = readIndexMeta(config, conn);
+        if (!meta) throw new Error("expected SQLite index metadata");
+        writeIndexMeta({ ...meta, embedding: { kind: "fts-only" } }, conn);
+      });
 
       await expect(
         querySearch(config, { query: "widgets", mode: "vector" }, { embedder }),

@@ -1,10 +1,11 @@
 /**
- * repro3: mirrors the real full-rebuild statement sequence EXACTLY, unlike repro2:
- * insert rows WITHOUT embeddings → one giant UNWIND SET embedding UPDATE (10,924 rows) →
- * bulk CREATE_VECTOR_INDEX → FTS drop+recreate → CHECKPOINT → FTS query → CHECKPOINT.
- * No onnxruntime, no semantic-layer code.
+ * Historical LadybugDB 0.18.2 checkpoint-race reproducer.
+ *
+ * This script is retained because the 2026-07-18 benchmark report links to it.
+ * It is not a SQLite v2 benchmark or release gate. Running it requires checking
+ * out the legacy dependency context (or installing @ladybugdb/core manually).
  */
-import { Database, Connection } from "@ladybugdb/core";
+import { Connection, Database } from "@ladybugdb/core";
 
 const path = `${process.cwd()}/.tmp/bench/repro-db.lbug`;
 const db = new Database(path, 2 * 1024 * 1024 * 1024, true, false, 0);
@@ -25,7 +26,6 @@ await conn.query(
   "CREATE NODE TABLE Chunk(id STRING, embedding FLOAT[512], text STRING, PRIMARY KEY(id))",
 );
 
-// Rows WITHOUT embeddings (the real insertChunksBatch shape).
 const insert = await conn.prepare(
   "UNWIND $rows AS row CREATE (c:Chunk {id: row.id, text: row.text})",
 );
@@ -38,7 +38,6 @@ for (let offset = 0; offset < 11_000; offset += 1000) {
 }
 console.error("insert ok");
 
-// One giant SET UPDATE for all embeddings (the real updateChunkEmbeddings shape).
 const allRows = Array.from({ length: 11_000 }, (_, i) => ({
   id: `doc-${i}`,
   embedding: vec(i),
@@ -60,8 +59,6 @@ console.error("fts drop+recreate ok");
 await conn.query("CHECKPOINT");
 console.error("first CHECKPOINT ok");
 
-// A SECOND connection on the same Database, as the pool does per unit of work — including the
-// schema setup the product re-runs on every acquisition.
 const conn2 = new Connection(db);
 await conn2.init();
 await conn2.query("INSTALL FTS");

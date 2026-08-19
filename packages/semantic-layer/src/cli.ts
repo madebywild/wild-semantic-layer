@@ -11,10 +11,8 @@ import {
 } from "./refinements.js";
 import type { RefinementStatus, SearchMode } from "./types.js";
 
-// DB-dependent commands are loaded lazily so that `check`, `init`,
-// `refine stage|list|reject`, `--help`, and `--version` work even when
-// LadybugDB's native module is unavailable (e.g. musl/Alpine Linux). The
-// commands that need the DB will surface their own load error when invoked.
+// DB-dependent commands are loaded lazily so `search.enabled: false` indexing and the
+// validation/refinement commands do not create or open a SQLite database.
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -94,6 +92,12 @@ try {
       ...loadOptions,
       full: values.full,
     });
+    if (result.build?.legacyMigrationNotice) {
+      console.error(
+        "semantic-layer index: migrated derived state to vault.sqlite. Legacy vault.lbug " +
+          "artifacts were left untouched and are safe to remove after verifying this index.",
+      );
+    }
     if (values.json) {
       console.log(JSON.stringify(result));
     } else if (!result.db) {
@@ -102,11 +106,13 @@ try {
           `(${result.noteCount} notes)`,
       );
     } else {
-      const mode = result.db.ftsOnly ? `${result.db.mode} (fts-only)` : result.db.mode;
+      const build = result.build;
+      if (!build) throw new Error("semantic-layer index: missing SQLite build summary");
+      const mode = build.ftsOnly ? `${build.mode} (fts-only)` : build.mode;
       console.log(
-        `semantic-layer index: ${mode} rebuild — ${result.db.notesIndexed} indexed, ` +
-          `${result.db.notesRemoved} removed, ${result.db.noteCount} notes, ${result.db.chunkCount} chunks ` +
-          `(${result.db.dbFile}, ${result.outFile}, ${result.codeRefsFile})`,
+        `semantic-layer index: ${mode} rebuild — ${build.notesIndexed} indexed, ` +
+          `${build.notesRemoved} removed, ${build.noteCount} notes, ${build.chunkCount} chunks ` +
+          `(${result.db.indexPath}, ${result.outFile}, ${result.codeRefsFile})`,
       );
     }
     process.exitCode = 0;
@@ -210,7 +216,7 @@ Options:
   if (command === "index" || command === "search-index") {
     return `Usage: semantic-layer ${command} [options]
 
-Regenerate the LadybugDB vault index and compatibility sidecars.
+Regenerate the SQLite vault index and compatibility sidecars.
 
 Options:
   --config <path>  Config file path
@@ -320,7 +326,7 @@ Options:
 
 Commands:
   check         Validate a vault (default)
-  index         Regenerate the LadybugDB vault index
+  index         Regenerate the SQLite vault index
   search-index  Alias for index
   search        Search the vault index
   graph         Explore vault graph relationships

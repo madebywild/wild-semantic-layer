@@ -153,7 +153,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
-| `search.enabled` | `true` | Whether `search`/`graph` and the LadybugDB index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars. |
+| `search.enabled` | `true` | Whether `search`/`graph` and the SQLite index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars and creates no database. |
 | `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
 | `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
 | `search.embedding.provider` | `local` | `local` (on-device) or `gemini` (hosted). See [Search](#search). |
@@ -337,8 +337,10 @@ schemas:
 ## Generated Index
 
 `semantic-layer index` writes `vault/HIERARCHY.md`,
-`vault/.semantic-layer/code-refs.json`, and the LadybugDB vault index at
-`vault/.semantic-layer/vault.lbug` (plus `vault.lbug.meta.json`). Agents should
+`vault/.semantic-layer/code-refs.json`, and the SQLite vault index at
+`vault/.semantic-layer/vault.sqlite`. The database contains search, graph, and
+index metadata; it has no metadata sidecar. SQLite may create transient
+`vault.sqlite-wal` and `vault.sqlite-shm` files while it is open. Agents should
 read `HIERARCHY.md` first, then load only the notes relevant to the task. Each
 row ends with a rough token estimate (chars/4 of the note body), so agents can
 see which notes are expensive before opening them; for large notes,
@@ -383,7 +385,7 @@ failure that `check` would report.
 
 ## Search and Graph
 
-`semantic-layer index` builds a local LadybugDB graph database from the vault.
+`semantic-layer index` builds a local SQLite graph database from the vault.
 The database stores notes, headings, chunks, wikilinks, hierarchy edges,
 tags/audience, and resolved code references. That same store powers full-text
 and vector search over the vault's notes, chunked per heading section.
@@ -397,9 +399,9 @@ semantic-layer search "runtime contract" --mode vector --limit 5
 semantic-layer search "runtime contract" --status active --tag runtime --json
 ```
 
-The index (`vault/.semantic-layer/vault.lbug`) and its metadata sidecar
-(`vault/.semantic-layer/vault.lbug.meta.json`) are derived, gitignored files,
-cheap to regenerate. `index` rebuilds incrementally by default — comparing a
+The index (`vault/.semantic-layer/vault.sqlite`) is a derived, gitignored file,
+cheap to regenerate. It holds both normalized relational data and index
+metadata. `index` rebuilds incrementally by default — comparing a
 content hash of every note against the previous build and rewriting only the
 notes that were added, changed, or deleted — and falls back to a full rebuild
 if there's no metadata yet or the chunking/embedding config changed. This
@@ -411,9 +413,15 @@ stderr and still searches, so a plain `search` call never has unpredictable
 rebuild latency.
 
 With `search.enabled: false`, `index` writes only `HIERARCHY.md` and
-`code-refs.json` and skips the database entirely (useful on platforms where
-LadybugDB's native module is unavailable; `search` and `graph` are unusable
-there).
+`code-refs.json` and skips the database entirely; `search` and `graph` are
+unusable there.
+
+The database uses Node's built-in `node:sqlite` with SQLite FTS5, WAL mode and
+`synchronous=FULL`. FTS is maintained by triggers and checked inside every
+index-write transaction. Embeddings are Float32 BLOBs; vector and hybrid
+search use an in-process exact-cosine cache, while filters and changed notes
+are refreshed after a successful transaction. A corruption-class database
+failure quarantines the derived SQLite artifacts and triggers a full rebuild.
 
 `--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
 `--status`, `--tag`, and `--audience` filter results by frontmatter; `--tag`
@@ -465,31 +473,30 @@ search:
 Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
 `GEMINI_API_KEY` for convenience).
 
-### Alpine / musl
+### Runtime requirements and FTS-only fallback
 
-LadybugDB ships a native module that requires glibc + OpenSSL 3. On
-`node:*-alpine` or similar, only the non-database commands work: `check`,
-`init`, and `refine stage|list|reject` load no native code at all. `index`
-(unless `search.enabled: false`), `search`, `graph`, and `refine promote`
-(with `search.enabled: true`) need a glibc-based image. The local embedding
-runtime (`@huggingface/transformers`, on `onnxruntime-node`) is an optional
-dependency with the same musl limitation, but it degrades gracefully: on
-platforms where its native bindings fail to load, `index` builds an
-FTS-only index instead of failing — it prints a warning, `search --mode fts`
-keeps working, and `--mode vector`/`--mode hybrid` fail with a message
-pointing at the fix rather than a native-loader stack trace. To get local
-vector search inside a container, use a glibc-based base image; otherwise
-switch `search.embedding.provider` to `gemini`.
+The package requires Node `>=22.16.0`. This version is deliberate: official
+Node 22.13 builds expose `node:sqlite` but do not include FTS5; Node 22.16+
+and Node 24 do. There is no native database dependency and SQLite itself works
+on supported Node platforms. The optional local embedding runtime
+(`@huggingface/transformers`, on `onnxruntime-node`) may still be unavailable
+on musl/Alpine. In that case `index` builds an FTS-only index instead of
+failing: `search --mode fts` keeps working, and `--mode vector`/`--mode hybrid`
+explain that embeddings are unavailable. Use a compatible local runtime or
+switch `search.embedding.provider` to `gemini` for vector search.
 
-## Migrating to 1.0
+## Migrating to 2.0
 
-Version `1.0.0` adds the LadybugDB-backed local search index (`search` and
-`graph` commands, `search:` config block) and makes `semantic-layer index`
-build it. Existing vaults and configs keep working unchanged — everything in
-`search:` is optional with the defaults shown above. If you built from the
-pre-release `feature/search-index` branch, note the local embedding provider
-key is `local` (the branch briefly used `fastembed`, which fails with a clear
-rename hint). See [`MIGRATIONS.md`](MIGRATIONS.md) for the versioned checklist.
+Version `2.0.0` replaces LadybugDB with the single-file SQLite index. Run
+under Node 22.16+ (or Node 24), remove direct LadybugDB dependencies and
+lifecycle calls such as `closePooledDatabases()`, then compile library
+consumers against the v2 result types. Canary one vault with
+`semantic-layer check` followed by `semantic-layer index --full` before the
+broader rollout. Existing `vault.lbug*` files are left untouched deliberately,
+so retaining them through the acceptance window gives consumers a simple v1
+rollback path. Update custom ignore rules for `vault.sqlite`, its WAL/SHM and
+quarantine variants, and `vault.lbug*`. See [`MIGRATIONS.md`](MIGRATIONS.md)
+for the field mapping and full rollout/rollback checklist.
 
 ## Migrating to 0.3
 

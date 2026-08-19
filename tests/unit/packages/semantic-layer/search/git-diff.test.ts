@@ -261,12 +261,36 @@ describe("candidateNoteIdsSinceSha", () => {
 
       // Simulates a consuming repo that hasn't picked up the recommended .gitignore entries yet:
       // these generated artifacts sit untracked right next to real vault notes.
-      writeVaultFile(dir, ".semantic-layer/vault.lbug", "binary-ish content");
-      writeVaultFile(dir, ".semantic-layer/vault.lbug.meta.json", "{}");
+      writeVaultFile(dir, ".semantic-layer/vault.sqlite", "binary-ish content");
+      writeVaultFile(dir, ".semantic-layer/vault.sqlite-wal", "transient wal content");
 
       expect(candidateNoteIdsSinceSha(dir, join(dir, "vault"), sha)).toEqual([]);
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe("generated index artifact ignores", () => {
+  it("keeps active, quarantined, and legacy database artifacts out of git", () => {
+    for (const file of [
+      "vault.sqlite",
+      "vault.sqlite-wal",
+      "vault.sqlite-shm",
+      "vault.sqlite.corrupt-2026-08-19",
+      "vault.sqlite-wal.corrupt-2026-08-19",
+      "vault.sqlite-shm.corrupt-2026-08-19",
+      "vault.lbug",
+      "vault.lbug.wal",
+      "vault.lbug.wal.checkpoint",
+      "vault.lbug.meta.json",
+      "vault.lbug.meta.json.tmp",
+    ]) {
+      expect(() =>
+        execFileSync("git", ["check-ignore", "--quiet", `fixtures/vault/.semantic-layer/${file}`], {
+          cwd: process.cwd(),
+        }),
+      ).not.toThrow();
     }
   });
 });

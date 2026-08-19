@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Embedder } from "../search/embedder.js";
 import type { ResolvedConfig } from "../types.js";
+import { dbFileForConfig, openDatabase, type SqliteConnection } from "./connection.js";
 import { SCHEMA_VERSION } from "./schema.js";
 
-/** Discriminated union so `kind` (not the free-form `id` string) drives narrowing. */
 export type IndexEmbeddingMeta =
   | { kind: "embedder"; id: string; dimensions: number }
   | { kind: "fts-only" };
@@ -12,59 +12,89 @@ export type IndexEmbeddingMeta =
 export type IndexMeta = {
   schemaVersion: number;
   vaultDir: string;
-  /** Informational only: the HEAD the index was built at, used for query-time staleness warnings. */
   lastIndexedSha?: string;
   lastIndexedAt: string;
   embedding: IndexEmbeddingMeta;
-  chunking: {
-    strategy: string;
-    maxChunkChars: number;
-  };
+  chunking: { strategy: string; maxChunkChars: number };
   noteContentHashes: Record<string, string>;
 };
 
-export function indexMetaPath(config: ResolvedConfig): string {
-  return resolve(config.vaultDir, ".semantic-layer", "vault.lbug.meta.json");
+const INDEX_META_KEY = "index_meta";
+
+function validMeta(meta: unknown): meta is IndexMeta {
+  const value = meta as Partial<IndexMeta>;
+  return (
+    typeof value?.schemaVersion === "number" &&
+    typeof value.vaultDir === "string" &&
+    typeof value.chunking?.strategy === "string" &&
+    typeof value.chunking?.maxChunkChars === "number" &&
+    (value.embedding?.kind === "embedder" || value.embedding?.kind === "fts-only") &&
+    value.noteContentHashes !== null &&
+    typeof value.noteContentHashes === "object"
+  );
 }
 
-export function readIndexMeta(config: ResolvedConfig): IndexMeta | undefined {
-  const path = indexMetaPath(config);
-  if (!existsSync(path)) return undefined;
+export function readIndexMeta(
+  config: ResolvedConfig,
+  conn?: SqliteConnection,
+): IndexMeta | undefined {
+  const dbPath = dbFileForConfig(config);
+  if (!conn && !existsSync(dbPath)) return undefined;
+  const db = conn ?? openDatabase(dbPath);
   try {
-    const raw = readFileSync(path, "utf8");
-    const meta = JSON.parse(raw) as IndexMeta;
-    // Shape-validate the fields the callers dereference: a structurally corrupt meta (valid JSON,
-    // wrong shape — e.g. hand-edited) must read as "no meta" so the index self-heals with a full
-    // rebuild instead of crashing on a raw TypeError.
-    if (
-      typeof meta.schemaVersion !== "number" ||
-      typeof meta.vaultDir !== "string" ||
-      typeof meta.chunking?.strategy !== "string" ||
-      typeof meta.chunking?.maxChunkChars !== "number" ||
-      typeof meta.embedding?.kind !== "string" ||
-      typeof meta.noteContentHashes !== "object"
-    ) {
+    let row: { value?: string } | undefined;
+    try {
+      row = db.prepare("SELECT value FROM metadata WHERE key = ?").get(INDEX_META_KEY) as
+        | { value?: string }
+        | undefined;
+    } catch (error) {
+      // A fresh, uninitialized SQLite file has no metadata table yet. Do not mask physical
+      // corruption: the builder needs that exact error to quarantine/rebuild derived state.
+      if (/no such table: metadata/i.test(String(error))) return undefined;
+      throw error;
+    }
+    if (!row?.value) return undefined;
+    try {
+      const meta: unknown = JSON.parse(row.value);
+      return validMeta(meta) ? meta : undefined;
+    } catch {
       return undefined;
     }
-    return meta;
-  } catch {
-    return undefined;
+  } finally {
+    if (!conn) db.close();
   }
 }
 
-export function writeIndexMeta(config: ResolvedConfig, meta: IndexMeta): void {
-  const path = indexMetaPath(config);
-  mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(meta, null, 2), "utf8");
-  renameSync(tmpPath, path);
+/** Must be called on the active index transaction when one exists. */
+export function writeIndexMeta(meta: IndexMeta, conn: SqliteConnection): void {
+  conn
+    .prepare(
+      "INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .run(INDEX_META_KEY, JSON.stringify(meta));
 }
 
-/**
- * Config-level drift between the live config and the built index: schema layout, vault location,
- * and chunking parameters. Shared by the build-time rebuild decision, the query-time staleness
- * warning, and the graph-command warning so the three can never drift apart.
- */
+export function readBooleanMetadata(conn: SqliteConnection, key: string): boolean | undefined {
+  let row: { value?: string } | undefined;
+  try {
+    row = conn.prepare("SELECT value FROM metadata WHERE key = ?").get(key) as
+      | { value?: string }
+      | undefined;
+  } catch (error) {
+    if (/no such table: metadata/i.test(String(error))) return undefined;
+    throw error;
+  }
+  return row ? row.value === "true" : undefined;
+}
+
+export function writeBooleanMetadata(conn: SqliteConnection, key: string, value: boolean): void {
+  conn
+    .prepare(
+      "INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .run(key, value ? "true" : "false");
+}
+
 export function configStalenessReasons(config: ResolvedConfig, meta: IndexMeta): string[] {
   const reasons: string[] = [];
   if (meta.schemaVersion !== SCHEMA_VERSION) {
@@ -84,36 +114,21 @@ export function configStalenessReasons(config: ResolvedConfig, meta: IndexMeta):
   return reasons;
 }
 
-/**
- * Whether the meta's recorded embedding identity mismatches the expected one. `expected` is
- * undefined when no embedder is available on this platform; a meta recording "fts-only" is only
- * stale when an embedder IS available (the index could be upgraded to vectors).
- */
 export function embeddingStalenessReason(
   meta: IndexMeta,
   expected: { id: string; dimensions: number } | undefined,
 ): string | undefined {
-  const recorded = meta.embedding;
-  if (recorded.kind === "fts-only") {
+  if (meta.embedding.kind === "fts-only") {
     return expected
       ? `index was built without embeddings but "${expected.id}" is now available`
       : undefined;
   }
   if (!expected) return "index has embeddings but no embedder is available";
-  if (recorded.id !== expected.id || recorded.dimensions !== expected.dimensions) {
-    return (
-      `index was built with embedder "${recorded.id}" (${recorded.dimensions} dimensions) ` +
-      `but "${expected.id}" (${expected.dimensions} dimensions) is configured`
-    );
-  }
-  return undefined;
+  return meta.embedding.id !== expected.id || meta.embedding.dimensions !== expected.dimensions
+    ? `index was built with embedder "${meta.embedding.id}" (${meta.embedding.dimensions} dimensions) but "${expected.id}" (${expected.dimensions} dimensions) is configured`
+    : undefined;
 }
 
-/**
- * The build-time rebuild decision: any config drift or embedding-identity mismatch forces a full
- * rebuild. Note content is NOT part of this check — incremental rebuilds reconcile content hashes
- * against the live vault directly, so git state and SHAs never decide index correctness.
- */
 export function buildStalenessReasons(
   config: ResolvedConfig,
   meta: IndexMeta,
@@ -137,6 +152,7 @@ export function isIndexStale(
 }
 
 export function embedderMeta(embedder?: Embedder): IndexEmbeddingMeta {
-  if (!embedder) return { kind: "fts-only" };
-  return { kind: "embedder", id: embedder.id, dimensions: embedder.dimensions };
+  return embedder
+    ? { kind: "embedder", id: embedder.id, dimensions: embedder.dimensions }
+    : { kind: "fts-only" };
 }

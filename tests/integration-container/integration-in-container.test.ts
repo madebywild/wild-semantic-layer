@@ -9,12 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * Runs the source-level integration suite inside an isolated Linux container.
  *
  * Why this exists in addition to the plain host run (`vitest run --project=integration`):
- * - Environment parity: `@ladybugdb/core` is a glibc + OpenSSL 3 native module; consumers and CI
- *   run it on Debian-based Linux, and this proves the suite on exactly that platform.
+ * - Runtime support: executes the same source integration suite on every supported Node major
+ *   (the Node 22 floor and Node 24), proving `node:sqlite` + FTS5 is present in both images.
  * - Guaranteed cleanup: several integration tests deliberately leave their temp vaults behind
- *   (deleting a LadybugDB directory mid-WAL-checkpoint can race the filesystem); inside the
+ *   (generated index artifacts); inside the
  *   container all of that debris vanishes with the container instead of accumulating on the host.
- * - Host isolation: the native module's process-level quirks cannot touch the developer machine.
+ * - Host isolation: the containers cannot leave generated index state in the developer workspace.
  *
  * Cleanup guarantees: `container.stop()` in afterAll removes the container (testcontainers stops
  * with remove enabled by default), and testcontainers' Ryuk resource reaper removes it even when
@@ -41,7 +41,7 @@ const PNPM_VERSION = (() => {
 
 // Basenames never copied into the container: host-native dependencies (the host node_modules is
 // a different platform's build), VCS internals, prior staging/coverage output, build output, and
-// generated LadybugDB artifacts (the suite must build its own indexes from scratch).
+// generated SQLite or legacy migration artifacts (the suite must build its own indexes from scratch).
 const EXCLUDED_BASENAMES = new Set([
   "node_modules",
   ".git",
@@ -53,12 +53,16 @@ const EXCLUDED_BASENAMES = new Set([
   "vault.lbug.wal",
   "vault.lbug.meta.json",
   "vault.lbug.meta.json.tmp",
+  "vault.sqlite",
+  "vault.sqlite-wal",
+  "vault.sqlite-shm",
 ]);
 
-let stagingRoot = "";
-let container: StartedTestContainer;
+const NODE_IMAGES = ["node:22.16.0", "node:24"] as const;
 
-describe("integration suite in an isolated container", () => {
+describe.each(NODE_IMAGES)("integration suite in an isolated %s container", (image) => {
+  let stagingRoot = "";
+  let container: StartedTestContainer;
   beforeAll(async () => {
     mkdirSync(tmpParent, { recursive: true });
     stagingRoot = mkdtempSync(join(tmpParent, "run-"));
@@ -68,9 +72,7 @@ describe("integration suite in an isolated container", () => {
       filter: (source) => !EXCLUDED_BASENAMES.has(basename(source)),
     });
 
-    // Same image as the e2e blackbox suite (one pull serves both): LadybugDB needs glibc +
-    // OpenSSL 3, so the full Debian-based image is required — Alpine/musl and slim are out.
-    container = await new GenericContainer("node:24")
+    container = await new GenericContainer(image)
       .withCommand(["sleep", "infinity"])
       .withCopyDirectoriesToContainer([{ source: stagedRepo, target: containerRepo }])
       .start();

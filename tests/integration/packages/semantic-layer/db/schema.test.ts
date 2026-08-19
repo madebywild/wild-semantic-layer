@@ -1,211 +1,92 @@
-import { Connection, Database } from "@ladybugdb/core";
 import { describe, expect, it } from "vitest";
-import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
+import { openDatabase } from "../../../../../packages/semantic-layer/src/db/connection.js";
 import {
   createSchema,
-  createVectorIndex,
-  dropSchema,
-  FTS_INDEX_NAME,
-  GRAPH_SCHEMA,
-  SCHEMA_VERSION,
-  VECTOR_INDEX_NAME,
+  repairFtsIndex,
+  validateFtsIntegrity,
 } from "../../../../../packages/semantic-layer/src/db/schema.js";
 import { createTempDir } from "../../../../helpers.js";
 
-async function openConnection(
-  dir: string,
-): Promise<{ conn: Connection; db: Database; close: () => Promise<void> }> {
-  const db = new Database(`${dir}/vault.lbug`);
-  const conn = new Connection(db);
-  await conn.init();
-  return {
-    conn,
-    db,
-    close: async () => {
-      await conn.close();
-      await db.close();
-    },
-  };
-}
-
-async function listTables(conn: Connection): Promise<string[]> {
-  const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-  return rows.map((row) => String(row.name)).sort();
-}
-
-async function listIndexes(
-  conn: Connection,
-): Promise<Array<{ table: string; name: string; type: string }>> {
-  const rows = await queryRows(conn, "CALL SHOW_INDEXES() RETURN *");
-  return rows.map((row) => ({
-    table: String(row.table_name),
-    name: String(row.index_name),
-    type: String(row.index_type),
-  }));
-}
-
-async function getEmbeddingType(conn: Connection): Promise<string | undefined> {
-  const rows = await queryRows(conn, 'CALL table_info("Chunk") RETURN *');
-  const row = rows.find((r) => r.name === "embedding");
-  return row ? String(row.type) : undefined;
-}
-
-describe("GRAPH_SCHEMA", () => {
-  it("exposes a stable schema version", () => {
-    expect(GRAPH_SCHEMA.version).toBe(SCHEMA_VERSION);
-  });
-
-  it("declares the expected node tables", () => {
-    expect(GRAPH_SCHEMA.nodeTables.map((t) => t.name).sort()).toEqual([
-      "Audience",
-      "Chunk",
-      "CodeSymbol",
-      "Heading",
-      "Note",
-      "Schema",
-      "Tag",
-    ]);
-  });
-
-  it("declares the expected rel tables", () => {
-    expect(GRAPH_SCHEMA.relTables.map((t) => t.name).sort()).toEqual([
-      "CONTAINS_CHUNK",
-      "DECLARES_CODE_REF",
-      "HAS_AUDIENCE",
-      "HAS_CHILD",
-      "HAS_HEADING",
-      "HAS_TAG",
-      "LINKS_TO",
-      "SCHEMA_CHILD",
-    ]);
-  });
-});
-
-describe("createSchema", () => {
-  it("creates all node and rel tables", async () => {
+describe("SQLite schema", () => {
+  it("maintains external-content FTS through insert, update, and delete triggers", () => {
     const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
     try {
-      await createSchema(conn);
-      const tables = await listTables(conn);
-      expect(tables).toHaveLength(GRAPH_SCHEMA.nodeTables.length + GRAPH_SCHEMA.relTables.length);
-      for (const table of GRAPH_SCHEMA.nodeTables) {
-        expect(tables).toContain(table.name);
-      }
-      for (const table of GRAPH_SCHEMA.relTables) {
-        expect(tables).toContain(table.name);
-      }
+      const db = openDatabase(`${dir}/vault.sqlite`);
+      createSchema(db);
+      const ftsCount = (term: string) =>
+        Number(
+          (
+            db
+              .prepare("SELECT count(*) AS count FROM chunks_fts WHERE chunks_fts MATCH ?")
+              .get(term) as { count: number }
+          ).count,
+        );
+      db.prepare("INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        "root",
+        "Root",
+        "Root note",
+        "active",
+        "owner",
+        "2026-08-18",
+        90,
+        "root.md",
+      );
+      db.prepare(
+        "INSERT INTO chunks (id, note_id, chunk_index, heading_path, text, search_text, modality) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run("root#0", "root", 0, "", "first unique term", "first unique term", "text");
+      expect(ftsCount("unique")).toBe(1);
+      db.prepare("UPDATE chunks SET search_text = ? WHERE id = ?").run("second phrase", "root#0");
+      expect(ftsCount("unique")).toBe(0);
+      expect(ftsCount("second")).toBe(1);
+      db.prepare("DELETE FROM chunks WHERE id = ?").run("root#0");
+      expect(ftsCount("second")).toBe(0);
+      validateFtsIntegrity(db);
+      repairFtsIndex(db);
+      db.close();
     } finally {
-      await close();
       cleanup();
     }
   });
 
-  it("creates the FTS index on Chunk.searchText", async () => {
+  it("detects an external-content FTS mismatch and repairs it from chunks", () => {
     const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
     try {
-      await createSchema(conn);
-      const indexes = await listIndexes(conn);
+      const db = openDatabase(`${dir}/vault.sqlite`);
+      createSchema(db);
+      db.prepare("INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        "root",
+        "Root",
+        "Root note",
+        "active",
+        "owner",
+        "2026-08-18",
+        90,
+        "root.md",
+      );
+      db.prepare(
+        "INSERT INTO chunks (id, note_id, chunk_index, heading_path, text, search_text, modality) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run("root#0", "root", 0, "", "repair token", "repair token", "text");
+      const rowid = Number(
+        (db.prepare("SELECT rowid FROM chunks WHERE id = ?").get("root#0") as { rowid: number })
+          .rowid,
+      );
+      db.prepare(
+        "INSERT INTO chunks_fts(chunks_fts, rowid, search_text) VALUES ('delete', ?, ?)",
+      ).run(rowid, "repair token");
+      expect(() => validateFtsIntegrity(db)).toThrow();
+      repairFtsIndex(db);
+      validateFtsIntegrity(db);
       expect(
-        indexes.some(
-          (idx) => idx.table === "Chunk" && idx.name === FTS_INDEX_NAME && idx.type === "FTS",
+        Number(
+          (
+            db
+              .prepare("SELECT count(*) AS count FROM chunks_fts WHERE chunks_fts MATCH ?")
+              .get("repair") as { count: number }
+          ).count,
         ),
-      ).toBe(true);
-      // Pinning the column matters: indexing `text` instead of the newline-normalized
-      // `searchText` reintroduces the fused-token bug (see indexer/full-rebuild.test.ts).
-      expect(FTS_INDEX_NAME).toBe("searchText");
+      ).toBe(1);
+      db.close();
     } finally {
-      await close();
-      cleanup();
-    }
-  });
-
-  it("is idempotent", async () => {
-    const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
-    try {
-      await createSchema(conn);
-      await createSchema(conn);
-      const tables = await listTables(conn);
-      expect(tables).toHaveLength(GRAPH_SCHEMA.nodeTables.length + GRAPH_SCHEMA.relTables.length);
-    } finally {
-      await close();
-      cleanup();
-    }
-  });
-});
-
-describe("dropSchema", () => {
-  it("removes all tables and indexes", async () => {
-    const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
-    try {
-      await createSchema(conn);
-      await createVectorIndex(conn, 384);
-      await dropSchema(conn);
-      const tables = await listTables(conn);
-      expect(tables).toHaveLength(0);
-    } finally {
-      await close();
-      cleanup();
-    }
-  });
-});
-
-describe("createVectorIndex", () => {
-  it("creates an HNSW index with the default dimensions", async () => {
-    const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
-    try {
-      await createSchema(conn);
-      await createVectorIndex(conn, 384);
-      const indexes = await listIndexes(conn);
-      expect(
-        indexes.some(
-          (idx) => idx.table === "Chunk" && idx.name === VECTOR_INDEX_NAME && idx.type === "HNSW",
-        ),
-      ).toBe(true);
-      expect(await getEmbeddingType(conn)).toBe("FLOAT[384]");
-    } finally {
-      await close();
-      cleanup();
-    }
-  });
-
-  it("recreates the embedding column when dimensions change", async () => {
-    const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
-    try {
-      await createSchema(conn);
-      await createVectorIndex(conn, 384);
-      await createVectorIndex(conn, 768);
-      const indexes = await listIndexes(conn);
-      expect(
-        indexes.some(
-          (idx) => idx.table === "Chunk" && idx.name === VECTOR_INDEX_NAME && idx.type === "HNSW",
-        ),
-      ).toBe(true);
-      expect(await getEmbeddingType(conn)).toBe("FLOAT[768]");
-    } finally {
-      await close();
-      cleanup();
-    }
-  });
-
-  it("is idempotent when called twice with the same dimensions", async () => {
-    const { dir, cleanup } = createTempDir();
-    const { conn, close } = await openConnection(dir);
-    try {
-      await createSchema(conn);
-      await createVectorIndex(conn, 384);
-      await createVectorIndex(conn, 384);
-      const indexes = await listIndexes(conn);
-      expect(
-        indexes.filter((idx) => idx.table === "Chunk" && idx.name === VECTOR_INDEX_NAME),
-      ).toHaveLength(1);
-    } finally {
-      await close();
       cleanup();
     }
   });

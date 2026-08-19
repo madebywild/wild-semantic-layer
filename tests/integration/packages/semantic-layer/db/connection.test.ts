@@ -1,194 +1,125 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  dbFileForConfig,
+  discardPooledDatabase,
+  isCorruptionError,
+  legacyIndexArtifacts,
   openDatabase,
+  quarantineDatabaseArtifacts,
+  recoverCorruptIndex,
   withConnection,
   withConnectionForConfig,
 } from "../../../../../packages/semantic-layer/src/db/connection.js";
-import { closePooledDatabases } from "../../../../../packages/semantic-layer/src/db/pool.js";
-import { queryRows } from "../../../../../packages/semantic-layer/src/db/cypher.js";
 import { createResolvedConfig, createTempDir } from "../../../../helpers.js";
 
-describe("openDatabase", () => {
-  it("opens and closes a database file roundtrip", () => {
+describe("SQLite connection", () => {
+  it("creates the configured single-file SQLite index with WAL and FTS5", async () => {
     const { dir, cleanup } = createTempDir();
     try {
-      const dbPath = `${dir}/vault.lbug`;
-      const db = openDatabase(dbPath);
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      const dbPath = dbFileForConfig(config);
+      await withConnectionForConfig(config, (db) => {
+        expect(db.prepare("PRAGMA journal_mode").get()).toMatchObject({ journal_mode: "wal" });
+        db.exec("CREATE VIRTUAL TABLE temp.connection_fts USING fts5(content)");
+        db.exec("DROP TABLE temp.connection_fts");
+      });
+      expect(dbPath).toBe(`${dir}/vault/.semantic-layer/vault.sqlite`);
       expect(existsSync(dbPath)).toBe(true);
-      db.closeSync();
     } finally {
       cleanup();
     }
   });
 
-  it("creates missing parent directories for the database path", () => {
+  it("serializes work and rejects nested use instead of deadlocking", async () => {
     const { dir, cleanup } = createTempDir();
     try {
-      const dbPath = `${dir}/nested/deep/vault.lbug`;
-      const db = openDatabase(dbPath);
-      expect(existsSync(dbPath)).toBe(true);
-      db.closeSync();
-    } finally {
-      cleanup();
-    }
-  });
-});
-
-describe("withConnection", () => {
-  it("creates the schema and runs the callback", async () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const dbPath = `${dir}/vault.lbug`;
-      const tableCount = await withConnection(dbPath, async (conn) => {
-        const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-        return rows.length;
-      });
-      expect(tableCount).toBeGreaterThan(0);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("drains the WAL at the end of every unit of work", async () => {
-    // Regression pin: withConnection must CHECKPOINT before releasing its connection, so the
-    // on-disk database is complete for out-of-process readers while the pooled handle stays
-    // open, and the exit-time close has no WAL left to hand to a background thread (LadybugDB
-    // 0.18.2's close-side checkpointing is asynchronous). Observable as `.wal` being gone.
-    const { dir, cleanup } = createTempDir();
-    try {
-      const dbPath = `${dir}/vault.lbug`;
-      await withConnection(dbPath, async (conn) => {
-        await queryRows(conn, 'CREATE (:Note {id: "wal-pin", title: "t"})');
-      });
-      expect(existsSync(`${dbPath}.wal`)).toBe(false);
-      expect(existsSync(`${dbPath}.wal.checkpoint`)).toBe(false);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("keeps serving new connections after a callback throws", async () => {
-    // The pooled database must survive a failing callback: only the per-call Connection is
-    // released, and the next withConnection on the same path reuses the pooled handle.
-    const { dir, cleanup } = createTempDir();
-    try {
-      const dbPath = `${dir}/vault.lbug`;
-      await expect(
-        withConnection(dbPath, async () => {
-          throw new Error("boom");
+      const path = `${dir}/vault.sqlite`;
+      const values = await Promise.all([
+        withConnection(path, (db) => {
+          db.exec("CREATE TABLE IF NOT EXISTS values_table (value INTEGER)");
+          db.prepare("INSERT INTO values_table VALUES (?)").run(1);
+          return 1;
         }),
-      ).rejects.toThrow("boom");
-
-      const tableCount = await withConnection(dbPath, async (conn) => {
-        const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-        return rows.length;
-      });
-      expect(tableCount).toBeGreaterThan(0);
-    } finally {
-      cleanup();
-    }
-  });
-});
-
-describe("withConnection — pool concurrency", () => {
-  it("serializes concurrent acquires on the same fresh path", async () => {
-    // Regression pin: unserialized acquires both opened the same path concurrently, which
-    // reproduces LadybugDB 0.18.2's WAL-rename race through a second trigger. The single-flight
-    // lock must make overlapping calls share one pooled handle.
-    const { dir, cleanup } = createTempDir();
-    try {
-      const dbPath = `${dir}/vault.lbug`;
-      const [a, b] = await Promise.all([
-        withConnection(dbPath, async (conn) => {
-          const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-          return rows.length;
-        }),
-        withConnection(dbPath, async (conn) => {
-          const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-          return rows.length;
+        withConnection(path, (db) => {
+          db.prepare("INSERT INTO values_table VALUES (?)").run(2);
+          return 2;
         }),
       ]);
-      expect(a).toBeGreaterThan(0);
-      expect(b).toBeGreaterThan(0);
+      expect(values).toEqual([1, 2]);
+      await expect(withConnection(path, () => withConnection(path, () => 3))).rejects.toThrow(
+        /must not be nested/,
+      );
     } finally {
       cleanup();
     }
   });
 
-  it("survives concurrent acquires on two different paths", async () => {
-    const one = createTempDir();
-    const two = createTempDir();
+  it("quarantines only SQLite corruption artifacts", () => {
+    const { dir, cleanup } = createTempDir();
     try {
-      const [a, b] = await Promise.all([
-        withConnection(`${one.dir}/vault.lbug`, async (conn) => {
-          const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-          return rows.length;
-        }),
-        withConnection(`${two.dir}/vault.lbug`, async (conn) => {
-          const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-          return rows.length;
-        }),
+      const dbPath = `${dir}/vault.sqlite`;
+      const db = openDatabase(dbPath);
+      db.close();
+      const moved = quarantineDatabaseArtifacts(dbPath);
+      expect(moved).toHaveLength(1);
+      expect(moved[0]).toMatch(/vault\.sqlite\.corrupt-/);
+      expect(existsSync(dbPath)).toBe(false);
+      expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(false);
+      expect(isCorruptionError({ code: "SQLITE_NOTADB" })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 11 })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 267 })).toBe(true);
+      expect(isCorruptionError({ code: "ERR_SQLITE_ERROR", errcode: 26 })).toBe(true);
+      expect(
+        isCorruptionError({ code: "ERR_SQLITE_ERROR", message: "malformed database schema" }),
+      ).toBe(true);
+      expect(isCorruptionError({ cause: { code: "ERR_SQLITE_ERROR", errcode: 26 } })).toBe(true);
+      expect(isCorruptionError({ code: "SQLITE_BUSY" })).toBe(false);
+      expect(isCorruptionError(new Error("permission denied"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("finds all legacy artifacts without modifying them", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      const config = createResolvedConfig({ repoRoot: dir, vaultDir: `${dir}/vault` });
+      const legacy = `${dir}/vault/.semantic-layer/vault.lbug`;
+      mkdirSync(`${dir}/vault/.semantic-layer`, { recursive: true });
+      for (const suffix of ["", ".wal", ".wal.checkpoint", ".meta.json", ".meta.json.tmp"])
+        writeFileSync(`${legacy}${suffix}`, "legacy");
+
+      expect(legacyIndexArtifacts(config)).toEqual([
+        legacy,
+        `${legacy}.wal`,
+        `${legacy}.wal.checkpoint`,
+        `${legacy}.meta.json`,
+        `${legacy}.meta.json.tmp`,
       ]);
-      expect(a).toBeGreaterThan(0);
-      expect(b).toBeGreaterThan(0);
-    } finally {
-      one.cleanup();
-      two.cleanup();
-    }
-  });
-});
-
-describe("closePooledDatabases", () => {
-  it("waits for queued work, closes the pooled handle, and is idempotent", async () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const dbPath = `${dir}/vault.lbug`;
-      // Do NOT await the unit of work before closing: closePooledDatabases must queue behind it
-      // on the work lock rather than closing the database out from under it.
-      const work = withConnection(dbPath, async (conn) => {
-        await queryRows(conn, 'CREATE (:Note {id: "pool-close-pin", title: "t"})');
-        return "worked";
-      });
-      await closePooledDatabases();
-      await closePooledDatabases();
-      await expect(work).resolves.toBe("worked");
-      // The WAL was drained by withConnection before the close, so nothing is left behind.
-      expect(existsSync(`${dbPath}.wal`)).toBe(false);
+      expect(existsSync(legacy)).toBe(true);
     } finally {
       cleanup();
     }
   });
-});
 
-describe("withConnection — reentrancy", () => {
-  it("throws instead of deadlocking when nested", async () => {
+  it("quarantines corruption raised inside a connection callback", async () => {
     const { dir, cleanup } = createTempDir();
     try {
-      const dbPath = `${dir}/vault.lbug`;
+      const dbPath = `${dir}/vault.sqlite`;
       await expect(
-        withConnection(dbPath, async () => withConnection(dbPath, async () => "inner")),
-      ).rejects.toThrow(/must not be nested/);
-    } finally {
-      cleanup();
-    }
-  });
-});
+        withConnection(dbPath, () => {
+          throw Object.assign(new Error("malformed database schema"), { code: "SQLITE_CORRUPT" });
+        }),
+      ).rejects.toThrow(/malformed database schema/);
+      expect(existsSync(dbPath)).toBe(false);
 
-describe("withConnectionForConfig", () => {
-  it("derives the database path from the config vault directory", async () => {
-    const { dir, cleanup } = createTempDir();
-    try {
-      const config = createResolvedConfig({
-        repoRoot: dir,
-        vaultDir: `${dir}/vault`,
-      });
-      const tableCount = await withConnectionForConfig(config, async (conn) => {
-        const rows = await queryRows(conn, "CALL SHOW_TABLES() RETURN *");
-        return rows.length;
-      });
-      expect(tableCount).toBeGreaterThan(0);
-      expect(existsSync(`${dir}/vault/.semantic-layer/vault.lbug`)).toBe(true);
+      await withConnection(dbPath, (db) => db.exec("CREATE TABLE recovery_check (value TEXT)"));
+      discardPooledDatabase(`${dir}/different.sqlite`);
+      expect(existsSync(dbPath)).toBe(true);
+      await expect(
+        recoverCorruptIndex(createResolvedConfig({ repoRoot: dir, vaultDir: dir })),
+      ).resolves.toEqual([]);
     } finally {
       cleanup();
     }

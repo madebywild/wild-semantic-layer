@@ -1,4 +1,3 @@
-import type { Connection } from "@ladybugdb/core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
@@ -6,15 +5,28 @@ import {
   collectCodeRefRequestsFromNotes,
   resolveCodeRefs,
 } from "../code-refs.js";
-import { DEFAULT_CODE_REFS_FILE, loadConfig, type LoadConfigOptions } from "../config.js";
+import { DEFAULT_CODE_REFS_FILE, type LoadConfigOptions, loadConfig } from "../config.js";
+import type { SqliteConnection } from "../db/connection.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import type { Embedder } from "../search/embedder.js";
 import type { BuildIndexResult, Note, ResolvedCodeRef, ResolvedConfig } from "../types.js";
 import { readVault } from "../vault.js";
 
+type IndexBuildSummary = {
+  mode: "full" | "incremental";
+  ftsOnly: boolean;
+  notesIndexed: number;
+  notesRemoved: number;
+  noteCount: number;
+  chunkCount: number;
+  legacyMigrationNotice: boolean;
+};
+
 export type IndexCommandResult = {
-  /** The LadybugDB build result, or undefined when `search.enabled` is false (no DB is built). */
+  /** SQLite index location, or undefined when `search.enabled` is false (no DB is built). */
   db?: BuildIndexResult;
+  /** Operational CLI data kept separate from the deliberately small public index result. */
+  build?: IndexBuildSummary;
   outFile: string;
   codeRefsFile: string;
   noteCount: number;
@@ -23,32 +35,57 @@ export type IndexCommandResult = {
 export type IndexCommandOptions = {
   full?: boolean;
   embedder?: Embedder;
-  /** Dependency-injection seam for tests that need to reuse an open connection. */
-  connection?: Connection;
 };
+
+type InternalIndexCommandOptions = IndexCommandOptions & { connection?: SqliteConnection };
 
 export async function runIndex(
   options: LoadConfigOptions & IndexCommandOptions = {},
 ): Promise<IndexCommandResult> {
-  const { full, embedder, connection, ...loadOptions } = options;
-  return indexResolved(loadConfig(loadOptions), { full, embedder, connection });
+  const { full, embedder, ...loadOptions } = options;
+  return indexResolved(loadConfig(loadOptions), { full, embedder });
 }
 
 export async function indexResolved(
   config: ResolvedConfig,
   options: IndexCommandOptions = {},
 ): Promise<IndexCommandResult> {
+  return indexResolvedInternal(config, options);
+}
+
+/** @internal Test seam for exercising multiple index commands on one transaction owner. */
+export async function indexResolvedWithConnection(
+  config: ResolvedConfig,
+  connection: SqliteConnection,
+  options: IndexCommandOptions = {},
+): Promise<IndexCommandResult> {
+  return indexResolvedInternal(config, { ...options, connection });
+}
+
+async function indexResolvedInternal(
+  config: ResolvedConfig,
+  options: InternalIndexCommandOptions,
+): Promise<IndexCommandResult> {
   const { full, embedder, connection } = options;
 
-  // The db module chain loads LadybugDB's native binding, so it is imported lazily and only when
-  // search is enabled — `check`/`init`/`refine` and a search-disabled `index` must keep working
-  // on platforms where the native module is unavailable (e.g. musl/Alpine).
+  // Keep search-disabled indexing database-free: it writes only HIERARCHY.md and code-refs.json.
   let db: BuildIndexResult | undefined;
+  let build: IndexBuildSummary | undefined;
   if (config.search.enabled) {
     const { buildIndex, buildIndexWithConnection } = await import("../db/indexer.js");
-    db = connection
+    const result = connection
       ? await buildIndexWithConnection(connection, config, { full }, { embedder })
       : await buildIndex(config, { full }, { embedder });
+    db = { indexPath: result.indexPath };
+    build = {
+      mode: result.mode,
+      ftsOnly: result.ftsOnly,
+      notesIndexed: result.notesIndexed,
+      notesRemoved: result.notesRemoved,
+      noteCount: result.noteCount,
+      chunkCount: result.chunkCount,
+      legacyMigrationNotice: result.legacyMigrationNotice,
+    };
   }
 
   // The DB build (when it ran) already validated the vault and threw on any error, so reaching
@@ -59,7 +96,7 @@ export async function indexResolved(
   const outFile = writeHierarchyMd(config, validNotes);
   const codeRefsFile = writeCodeRefsJson(config, resolved);
 
-  return { db, outFile, codeRefsFile, noteCount: validNotes.size };
+  return { db, build, outFile, codeRefsFile, noteCount: validNotes.size };
 }
 
 function readValidNotesAndCodeRefs(config: ResolvedConfig): {

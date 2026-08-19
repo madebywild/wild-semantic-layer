@@ -3,9 +3,8 @@ import type { Embedder } from "../search/embedder.js";
 import type { SearchQueryOptions, SearchQueryResult } from "../types.js";
 
 /**
- * Loads config from disk/CLI options, then runs a search query. The db layer (and LadybugDB's
- * native module with it) is imported lazily so library consumers pulling in unrelated helpers
- * never load native code.
+ * Loads config from disk/CLI options, then lazily imports the SQLite query layer so consumers of
+ * unrelated validation helpers do not open the vault index.
  */
 export async function runSearch(
   options: LoadConfigOptions & SearchQueryOptions & { embedder?: Embedder },
