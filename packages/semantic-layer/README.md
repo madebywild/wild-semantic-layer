@@ -130,6 +130,8 @@ externalInvariants:
     usedIn: [demo.runtime]
 evolution:
   stagingDir: vault/.semantic-layer/refinements
+wikilinks:
+  aliasOrder: dendron
 search:
   chunking:
     strategy: heading
@@ -153,6 +155,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `frontmatter.requiredExtraFields` | `[]` | Project-specific required frontmatter fields. |
 | `externalInvariants` | `[]` | Values that must appear in listed notes beside `{{token}}` markers. |
 | `evolution.stagingDir` | `<vault>/.semantic-layer/refinements` | Untrusted refinement lifecycle records. |
+| `wikilinks.aliasOrder` | `dendron` | Pipe convention: `dendron` uses `[[alias\|target]]`; `obsidian` uses `[[target\|alias]]`. |
 | `search.enabled` | `true` | Whether `search`/`graph` and the SQLite index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars and creates no database. |
 | `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
 | `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
@@ -209,14 +212,33 @@ its parent `auth.md`. The vault requires `root.md`.
 Notes link to other notes with Dendron-style wikilinks in the Markdown body:
 
 - `[[auth.flow]]` links to the note with id `auth.flow`.
-- `[[the login flow|auth.flow]]` renders an alias; the target is the part after
-  the pipe (note: this is the reverse of Obsidian's `[[target|alias]]`).
+- `[[the login flow|auth.flow]]` renders an alias using Dendron's
+  `[[alias|target]]` order, which remains the backward-compatible default.
 - `[[auth.flow#token refresh]]` links to a heading inside the target note.
+- `[[#local setup]]` links to a heading in the current note.
+- `[[auth.flow#tokens#refresh]]` identifies a nested heading. A short leaf-only
+  anchor is accepted when it resolves uniquely; ambiguous leaves require the
+  full `#Parent#Child` path.
 
-`semantic-layer check` fails on wikilinks to unknown notes or missing headings;
-`semantic-layer graph links <id>` / `backlinks <id>` / `orphans` / `cycles`
-query the link graph. Plain Markdown links (`[text](auth.flow.md)`) are not
-followed.
+For an Obsidian-authored vault, opt into its `[[target|alias]]` order:
+
+```yaml
+wikilinks:
+  aliasOrder: obsidian
+```
+
+Alias order is configuration, never inferred from which side happens to name
+an existing note. This keeps link meaning stable as notes are added. Heading
+matching is case-insensitive but preserves punctuation and Unicode identity;
+graph results return the shortest exact heading path that uniquely identifies
+the destination.
+
+Both `semantic-layer check` and `semantic-layer index` fail on wikilinks to
+unknown notes, malformed multi-pipe/empty-segment syntax, missing headings, or
+ambiguous short heading paths. Repeated links to the same note and heading
+produce one graph edge. `semantic-layer graph links <id>` / `backlinks <id>` /
+`orphans` / `cycles` query the link graph. Plain Markdown links
+(`[text](auth.flow.md)`) are not followed.
 
 Use wikilinks to keep individual notes small: when a note grows large, split it
 into dotted sub-notes (`auth.flow.refresh.md`) and link them from the parent, so
@@ -378,10 +400,10 @@ The code refs sidecar is generated JSON:
 }
 ```
 
-`index` validates note frontmatter, then resolves code refs only for valid notes
-before writing either generated file. If a symbol is missing or ambiguous, it
-leaves the previous generated files in place and reports the same code ref
-failure that `check` would report.
+`index` validates note frontmatter, resolves code refs only for valid notes,
+and validates wikilink syntax and destinations before writing either generated
+file or graph state. If a symbol or wikilink is invalid, it leaves the previous
+generated files in place and reports the same failure that `check` would.
 
 ## Search and Graph
 

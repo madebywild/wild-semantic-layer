@@ -5,10 +5,10 @@ desc: Runtime assumptions for the demo app.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-05-26
+last_verified: 2026-08-20
 ttl_days: 90
 code_refs:
-  - file: src/app.js
+  - file: apps/demo/src/app.js
     symbol: runtimeName
     kind: function
 tags: [runtime]

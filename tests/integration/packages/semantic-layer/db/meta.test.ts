@@ -28,6 +28,7 @@ function meta(config: ReturnType<typeof createResolvedConfig>): IndexMeta {
     lastIndexedAt: new Date().toISOString(),
     embedding: { kind: "fts-only" },
     chunking: { strategy: "heading", maxChunkChars: 2000 },
+    wikilinks: { aliasOrder: "dendron" },
     noteContentHashes: { root: "hash" },
   };
 }
@@ -48,7 +49,7 @@ describe("SQLite index metadata", () => {
     }
   });
 
-  it("detects schema and chunking config drift", () => {
+  it("detects schema, chunking, and wikilink config drift", () => {
     const config = createResolvedConfig();
     const current = { ...meta(config), vaultDir: config.vaultDir };
     expect(configStalenessReasons(config, { ...current, schemaVersion: 0 }).join("\n")).toMatch(
@@ -60,6 +61,12 @@ describe("SQLite index metadata", () => {
         chunking: { strategy: "whole-note", maxChunkChars: 100 },
       }),
     ).toContain("chunking config changed since the index was built");
+    expect(
+      configStalenessReasons(config, {
+        ...current,
+        wikilinks: { aliasOrder: "obsidian" },
+      }),
+    ).toContain("wikilink alias-order config changed since the index was built");
     expect(embedderMeta()).toEqual({ kind: "fts-only" });
   });
 

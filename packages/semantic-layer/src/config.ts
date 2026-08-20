@@ -4,8 +4,10 @@ import { parse as parseYaml } from "yaml";
 import type {
   ResolvedConfig,
   ResolvedSearchConfig,
+  ResolvedWikilinkConfig,
   SearchConfig,
   SemanticLayerConfig,
+  WikilinkConfig,
 } from "./types.js";
 
 const CONFIG_FILES = [
@@ -24,6 +26,11 @@ const DEFAULT_CONFIG: SemanticLayerConfig = {
   frontmatter: { requiredExtraFields: [] },
   externalInvariants: [],
   evolution: { stagingDir: "" },
+  wikilinks: { aliasOrder: "dendron" },
+};
+
+export const DEFAULT_WIKILINK_CONFIG: ResolvedWikilinkConfig = {
+  aliasOrder: "dendron",
 };
 
 export const DEFAULT_SEARCH_CONFIG: ResolvedSearchConfig = {
@@ -60,10 +67,12 @@ export function loadConfig(options: LoadConfigOptions = {}): ResolvedConfig {
     codeRefsFile: merged.index.codeRefsFile ?? DEFAULT_CODE_REFS_FILE,
   };
   const search = mergeSearchConfig(DEFAULT_SEARCH_CONFIG, merged.search);
+  const wikilinks = mergeWikilinkConfig(DEFAULT_WIKILINK_CONFIG, merged.wikilinks);
 
   return {
     ...merged,
     index,
+    wikilinks,
     search,
     configFile,
     repoRoot: resolve(baseDir, merged.root),
@@ -88,8 +97,22 @@ function mergeConfig(
     frontmatter: { ...base.frontmatter, ...override.frontmatter },
     externalInvariants: override.externalInvariants ?? base.externalInvariants,
     evolution: { ...base.evolution, ...override.evolution },
+    wikilinks: { ...base.wikilinks, ...override.wikilinks },
     search: override.search ?? base.search,
   };
+}
+
+function mergeWikilinkConfig(
+  base: ResolvedWikilinkConfig,
+  override: WikilinkConfig | undefined,
+): ResolvedWikilinkConfig {
+  const aliasOrder = override?.aliasOrder ?? base.aliasOrder;
+  if (aliasOrder !== "dendron" && aliasOrder !== "obsidian") {
+    throw new Error(
+      `wikilinks.aliasOrder must be "dendron" or "obsidian", got ${JSON.stringify(aliasOrder)}`,
+    );
+  }
+  return { aliasOrder };
 }
 
 /**

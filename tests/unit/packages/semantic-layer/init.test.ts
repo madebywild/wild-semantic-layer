@@ -27,6 +27,7 @@ describe("runInit", () => {
       expect(content).toContain("codeRefsFile: .semantic-layer/code-refs.json");
       expect(content).toContain("evolution:");
       expect(content).toContain("stagingDir: vault/.semantic-layer/refinements");
+      expect(content).toContain("wikilinks:\n  aliasOrder: dendron");
     } finally {
       cleanup();
     }

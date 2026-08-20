@@ -40,6 +40,8 @@ frontmatter:
 externalInvariants: []
 evolution:
   stagingDir: ${vault}/.semantic-layer/refinements
+wikilinks:
+  aliasOrder: dendron
 `;
 }
 

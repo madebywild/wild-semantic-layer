@@ -7,6 +7,7 @@ import {
 } from "../code-refs.js";
 import { DEFAULT_CODE_REFS_FILE, type LoadConfigOptions, loadConfig } from "../config.js";
 import type { SqliteConnection } from "../db/connection.js";
+import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import type { Embedder } from "../search/embedder.js";
 import type { BuildIndexResult, Note, ResolvedCodeRef, ResolvedConfig } from "../types.js";
@@ -115,6 +116,8 @@ function readValidNotesAndCodeRefs(config: ResolvedConfig): {
   if (codeRefErrors.length > 0) {
     throw new Error(formatIndexErrors(codeRefErrors.map((error) => error.message)));
   }
+  const wikilinkErrors = extractVaultWikilinks(validNotes, config.wikilinks).errors;
+  if (wikilinkErrors.length > 0) throw new Error(formatIndexErrors(wikilinkErrors));
   return { validNotes, resolved: codeRefs.resolved };
 }
 

@@ -1,5 +1,5 @@
 vault: vault
-root: .
+root: ../..
 index:
   file: HIERARCHY.md
   codeRefsFile: .semantic-layer/code-refs.json
@@ -11,3 +11,5 @@ externalInvariants:
     usedIn: [demo.runtime]
 evolution:
   stagingDir: vault/.semantic-layer/refinements
+wikilinks:
+  aliasOrder: dendron

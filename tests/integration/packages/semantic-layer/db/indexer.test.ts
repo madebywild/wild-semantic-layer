@@ -69,7 +69,7 @@ describe("SQLite indexer", () => {
     expect(hashNote({ ...note, body: "changed" })).not.toBe(hashNote(note));
   });
 
-  it("skips wikilink-shaped prose when the target note does not exist", async () => {
+  it("rejects a dangling wikilink before writing derived graph state", async () => {
     const tv = createTempVault({
       "vault/root.md": noteMarkdown({
         id: "root",
@@ -78,9 +78,54 @@ describe("SQLite indexer", () => {
     });
     try {
       const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await expect(
+        buildIndex(config, { full: true }, { embedder: createFakeEmbedder() }),
+      ).rejects.toThrow('wikilink "[[not-a-vault-note]]" points at unknown note');
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("stores one canonical edge for repeated links to a nested heading", async () => {
+    const tv = createTempVault({
+      "vault/root.md": noteMarkdown({
+        id: "root",
+        body: "# Root\n\n[[target#Parent#Child]] and [[target#Parent#Child]].\n",
+      }),
+      "vault/target.md": noteMarkdown({
+        id: "target",
+        body: "## Parent\n\n### Child\n\nTarget content.\n\n## Other\n\n### Child\n",
+      }),
+    });
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
       await buildIndex(config, { full: true }, { embedder: createFakeEmbedder() });
       await withConnectionForConfig(config, (db) => {
-        expect(db.prepare("SELECT count(*) AS count FROM links").get()).toMatchObject({ count: 0 });
+        expect(db.prepare("SELECT source_id, target_id, anchor FROM links").all()).toEqual([
+          { source_id: "root", target_id: "target", anchor: "Parent#Child" },
+        ]);
+      });
+    } finally {
+      tv.cleanup();
+    }
+  });
+
+  it("indexes Obsidian target-before-alias links when configured", async () => {
+    const tv = createTempVault({
+      "vault/root.md": noteMarkdown({ id: "root", body: "[[target|Display name]]\n" }),
+      "vault/target.md": noteMarkdown({ id: "target", body: "Target content.\n" }),
+    });
+    try {
+      const config = createResolvedConfig({
+        repoRoot: tv.dir,
+        vaultDir: tv.vaultDir,
+        wikilinks: { aliasOrder: "obsidian" },
+      });
+      await buildIndex(config, { full: true }, { embedder: createFakeEmbedder() });
+      await withConnectionForConfig(config, (db) => {
+        expect(db.prepare("SELECT source_id, target_id, anchor FROM links").all()).toEqual([
+          { source_id: "root", target_id: "target", anchor: "" },
+        ]);
       });
     } finally {
       tv.cleanup();

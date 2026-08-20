@@ -12,7 +12,7 @@ import { extractSchemaEdges } from "../extract/schema-relations.js";
 import type { TagEdge } from "../extract/tags.js";
 import { extractTagEdges } from "../extract/tags.js";
 import type { WikilinkEdge } from "../extract/wikilinks.js";
-import { extractWikilinks } from "../extract/wikilinks.js";
+import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import {
   createEmbedder,
@@ -160,7 +160,7 @@ type PreparedVault = {
 
 /** All potentially slow/fallible work, especially embedding, finishes before BEGIN. */
 async function prepareVault(config: ResolvedConfig): Promise<PreparedVault> {
-  const { vault, validNotes, codeRefEdges } = await readValidatedVault(config);
+  const { vault, validNotes, codeRefEdges, wikilinkEdges } = await readValidatedVault(config);
   const chunksByNote = new Map(
     [...validNotes.values()].map((note) => [note.id, chunkNote(note, config.search.chunking)]),
   );
@@ -170,7 +170,7 @@ async function prepareVault(config: ResolvedConfig): Promise<PreparedVault> {
     codeRefEdges,
     chunksByNote,
     hierarchyEdges: extractHierarchyEdges(validNotes),
-    wikilinkEdges: [...validNotes.values()].flatMap(extractWikilinks),
+    wikilinkEdges,
     tagEdges: extractTagEdges(validNotes),
     audienceEdges: extractAudienceEdges(validNotes),
   };
@@ -378,6 +378,7 @@ function buildMeta(
     lastIndexedAt: new Date().toISOString(),
     embedding: embedderMeta(embedder),
     chunking: config.search.chunking,
+    wikilinks: config.wikilinks,
     noteContentHashes,
   };
 }
@@ -425,6 +426,7 @@ async function readValidatedVault(config: ResolvedConfig): Promise<{
   vault: Vault;
   validNotes: Map<string, Note>;
   codeRefEdges: CodeRefEdge[];
+  wikilinkEdges: WikilinkEdge[];
 }> {
   const vault = readVault(config.vaultDir);
   const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
@@ -434,5 +436,7 @@ async function readValidatedVault(config: ResolvedConfig): Promise<{
     config.repoRoot,
   );
   if (codeRefErrors.length > 0) throw new Error(formatIndexErrors(codeRefErrors));
-  return { vault, validNotes, codeRefEdges };
+  const wikilinks = extractVaultWikilinks(validNotes, config.wikilinks);
+  if (wikilinks.errors.length > 0) throw new Error(formatIndexErrors(wikilinks.errors));
+  return { vault, validNotes, codeRefEdges, wikilinkEdges: wikilinks.edges };
 }

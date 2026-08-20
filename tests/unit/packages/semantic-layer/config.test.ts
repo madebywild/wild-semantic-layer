@@ -28,6 +28,7 @@ describe("loadConfig", () => {
       expect(config.frontmatter.requiredExtraFields).toEqual([]);
       expect(config.externalInvariants).toEqual([]);
       expect(config.evolution.stagingDir).toBe("vault/.semantic-layer/refinements");
+      expect(config.wikilinks).toEqual({ aliasOrder: "dendron" });
       expect(config.refinementDir).toBe(join(dir, "vault/.semantic-layer/refinements"));
       expect(config.configFile).toBeUndefined();
     } finally {
@@ -203,6 +204,28 @@ describe("loadConfig", () => {
       );
       const config = loadConfig({ cwd: dir });
       expect(config.index.codeRefsFile).toBe("generated/code-refs.json");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("supports an explicit Obsidian wikilink alias order", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nwikilinks:\n  aliasOrder: obsidian\n");
+      expect(loadConfig({ cwd: dir }).wikilinks).toEqual({ aliasOrder: "obsidian" });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects an unknown wikilink alias order", () => {
+    const { dir, cleanup } = createTempDir();
+    try {
+      writeYamlConfig(dir, "vault: vault\nwikilinks:\n  aliasOrder: guessed\n");
+      expect(() => loadConfig({ cwd: dir })).toThrow(
+        /wikilinks\.aliasOrder must be "dendron" or "obsidian"/,
+      );
     } finally {
       cleanup();
     }

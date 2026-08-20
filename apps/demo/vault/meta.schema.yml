@@ -3,7 +3,7 @@ schemas:
   - id: meta
     title: Metadata
     parent: root
-    children: [agent-conventions, testing, search]
+    children: [agent-conventions, testing, search, wikilinks]
   - id: agent-conventions
     title: Agent conventions
     desc: Agent operating rules.
@@ -13,3 +13,6 @@ schemas:
   - id: search
     title: Search index
     desc: Local full-text + vector search over this vault.
+  - id: wikilinks
+    title: Wikilink semantics
+    desc: Validated wikilink grammar shared by check and index.

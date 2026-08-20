@@ -47,6 +47,7 @@ function createGraphVault(): TempVault {
       tags: ["docs"],
     }),
     "vault/api.md": note("api", {
+      body: "## tokens\n\nAPI token behavior.",
       tags: ["docs", "code"],
       codeRefs: [
         { file: "src/service.ts", symbol: "issueToken" },

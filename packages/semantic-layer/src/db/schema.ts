@@ -1,6 +1,6 @@
 import type { SqliteConnection } from "./connection.js";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_EMBEDDING_DIMENSIONS = 384;
 export const FTS_INDEX_NAME = "chunks_fts";
 

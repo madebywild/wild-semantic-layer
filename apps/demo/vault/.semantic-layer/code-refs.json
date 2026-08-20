@@ -4,7 +4,7 @@
     {
       "note_id": "demo.runtime",
       "ref": {
-        "file": "src/app.js",
+        "file": "apps/demo/src/app.js",
         "symbol": "runtimeName",
         "kind": "function"
       },
@@ -16,10 +16,76 @@
       "column": 17,
       "declarations": [
         {
-          "file": "src/app.js",
+          "file": "apps/demo/src/app.js",
           "kind": "function",
           "line": 5,
           "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.wikilinks",
+      "ref": {
+        "file": "packages/semantic-layer/src/config.ts",
+        "symbol": "DEFAULT_WIKILINK_CONFIG",
+        "kind": "const"
+      },
+      "kind": "const",
+      "namespaces": [
+        "value"
+      ],
+      "line": 32,
+      "column": 14,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/config.ts",
+          "kind": "const",
+          "line": 32,
+          "column": 14
+        }
+      ]
+    },
+    {
+      "note_id": "meta.wikilinks",
+      "ref": {
+        "file": "packages/semantic-layer/src/extract/wikilinks.ts",
+        "symbol": "extractVaultWikilinks",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 32,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/extract/wikilinks.ts",
+          "kind": "function",
+          "line": 32,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.wikilinks",
+      "ref": {
+        "file": "packages/semantic-layer/src/extract/wikilinks.ts",
+        "symbol": "headingKey",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 171,
+      "column": 10,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/extract/wikilinks.ts",
+          "kind": "function",
+          "line": 171,
+          "column": 10
         }
       ]
     }
