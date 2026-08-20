@@ -635,6 +635,135 @@ describe("checkResolved — wikilinks", () => {
     }
   });
 
+  it("accepts an anchor-only wikilink to a heading in the same note", () => {
+    const { config, cleanup } = setupValidVault({
+      files: {
+        "vault/root.md": validNote(
+          "root",
+          "Root",
+          "Root note.",
+          "active",
+          {},
+          "## Local heading\n\nSee [[#Local heading]].",
+        ),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      },
+    });
+    try {
+      expect(checkResolved(config).errors.some((error) => error.includes("wikilink"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("supports Obsidian target-before-alias order when configured", () => {
+    const { config, cleanup } = setupValidVault({
+      files: {
+        "vault/root.md": validNote(
+          "root",
+          "Root",
+          "Root note.",
+          "active",
+          {},
+          "See [[alpha|Alpha Display]].",
+        ),
+        "vault/alpha.md": validNote("alpha"),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [alpha]\n",
+      },
+    });
+    config.wikilinks.aliasOrder = "obsidian";
+    try {
+      expect(checkResolved(config).errors.some((error) => error.includes("wikilink"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts a fully qualified nested heading and rejects an ambiguous leaf", () => {
+    const targetBody = "## Version 2\n\n### Fixed\n\n## Version 1\n\n### Fixed\n";
+    const { config, cleanup } = setupValidVault({
+      files: {
+        "vault/root.md": validNote(
+          "root",
+          "Root",
+          "Root note.",
+          "active",
+          {},
+          "See [[target#Version 2#Fixed]] and [[target#Fixed]].",
+        ),
+        "vault/target.md": validNote("target", "Target", "Target note.", "active", {}, targetBody),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [target]\n",
+      },
+    });
+    try {
+      const errors = checkResolved(config).errors.filter((error) => error.includes("wikilink"));
+      expect(errors).toEqual([expect.stringContaining("[[target#Fixed]]")]);
+      expect(errors[0]).toContain("ambiguous heading");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects malformed multi-pipe links", () => {
+    const { config, cleanup } = setupValidVault({
+      files: {
+        "vault/root.md": validNote(
+          "root",
+          "Root",
+          "Root note.",
+          "active",
+          {},
+          "See [[display|root|extra]].",
+        ),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      },
+    });
+    try {
+      expect(checkResolved(config).errors).toContain(
+        '[root] wikilink "[[display|root|extra]]" contains more than one pipe',
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not conflate headings that differ only by punctuation", () => {
+    const { config, cleanup } = setupValidVault({
+      files: {
+        "vault/root.md": validNote(
+          "root",
+          "Root",
+          "Root note.",
+          "active",
+          {},
+          "See [[target#What's new?]] and [[target#Whats new]].",
+        ),
+        "vault/target.md": validNote(
+          "target",
+          "Target",
+          "Target note.",
+          "active",
+          {},
+          "## What's new?\n",
+        ),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: [target]\n",
+      },
+    });
+    try {
+      const errors = checkResolved(config).errors.filter((error) => error.includes("wikilink"));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain("[[target#Whats new]]");
+      expect(errors[0]).toContain("missing heading");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("rejects wikilink to nonexistent note", () => {
     const { config, cleanup } = setupValidVault({
       files: {

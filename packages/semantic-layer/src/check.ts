@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 import { collectCodeRefRequestsFromNotes, resolveCodeRefs } from "./code-refs.js";
 import { type LoadConfigOptions, loadConfig } from "./config.js";
+import { extractVaultWikilinks } from "./extract/wikilinks.js";
 import { validateNoteFrontmatter } from "./frontmatter.js";
 import { validateRefinementStorage } from "./refinement-store.js";
 import type { CheckResult, NoteFrontmatter, ResolvedConfig } from "./types.js";
-import { readVault, slug, toIsoDate } from "./vault.js";
+import { readVault, toIsoDate } from "./vault.js";
 
 export function runCheck(options: LoadConfigOptions = {}): CheckResult {
   return checkResolved(loadConfig(options));
@@ -50,7 +51,7 @@ export function checkResolved(config: ResolvedConfig): CheckResult {
 
   checkHierarchy(notes, fail);
   checkSchemas(notes, schemas, fail);
-  checkWikilinks(notes, fail);
+  for (const error of extractVaultWikilinks(notes, config.wikilinks).errors) fail(error);
   checkCodeRefs(notes, validNotes, config.repoRoot, fail);
   checkFreshness(notes, validNotes, fail);
   checkInvariants(notes, config, fail);
@@ -107,35 +108,6 @@ function checkSchemas(
       const childId = top === "root" ? child : `${top}.${child}`;
       if (!notes.has(childId)) {
         fail(`${top}.schema.yml lists child "${child}" but note ${childId}.md does not exist`);
-      }
-    }
-  }
-}
-
-function checkWikilinks(
-  notes: Map<string, { id: string; body: string; headings: Set<string> }>,
-  fail: (message: string) => void,
-) {
-  for (const note of notes.values()) {
-    const scannable = note.body
-      .replace(/```[\s\S]*?```/g, (match) => " ".repeat(match.length))
-      .replace(/`[^`\n]*`/g, (match) => " ".repeat(match.length));
-
-    for (const match of scannable.matchAll(/\[\[([^\]]+)\]\]/g)) {
-      const raw = match[1] ?? "";
-      let target = raw.includes("|") ? (raw.split("|").at(1) ?? "") : raw;
-      let heading: string | undefined;
-      if (target.includes("#")) {
-        const [id, hash] = target.split("#");
-        target = id ?? "";
-        heading = slug(hash ?? "");
-      }
-      target = target.trim();
-      const linked = notes.get(target);
-      if (!linked) {
-        fail(`[${note.id}] wikilink "[[${raw}]]" points at unknown note "${target}"`);
-      } else if (heading && !linked.headings.has(heading)) {
-        fail(`[${note.id}] wikilink "[[${raw}]]" points at a missing heading in ${target}.md`);
       }
     }
   }

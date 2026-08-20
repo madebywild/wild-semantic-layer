@@ -1,0 +1,23 @@
+schema_version: 1
+id: 20260819225533-unify-wikilink-semantics-after-v2
+status: promoted
+source: github-issue
+title: Unify wikilink semantics after v2
+summary: "Issue #4 identifies divergent wikilink parsing between check and
+  index, unsupported same-note anchors, non-Obsidian alias order, permissive
+  delimiter parsing, silent dangling-link indexing, and lossy heading matching.
+  Implement one validated parser, Obsidian-compatible target-first aliases,
+  same-note and nested heading anchors, deterministic syntax errors, and
+  consistent check/index behavior while preserving duplicate-edge
+  deduplication."
+evidence:
+  - https://github.com/madebywild/wild-semantic-layer/issues/4
+  - v2.0 left check.ts and vault.ts unchanged from v1.1.0; SQLite uniqueness
+    fixed only duplicate stored edges.
+related_notes:
+  - meta
+created_at: 2026-08-19T22:55:33.036Z
+updated_at: 2026-08-19T23:07:13.341Z
+promoted_at: 2026-08-19T23:07:13.341Z
+promoted_notes:
+  - meta.wikilinks

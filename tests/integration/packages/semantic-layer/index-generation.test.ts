@@ -18,6 +18,32 @@ function validNoteMd(
 }
 
 describe("index generation (integration)", () => {
+  it("rejects dangling wikilinks even when search and SQLite indexing are disabled", async () => {
+    const tv = createTempVault(
+      {
+        "vault/root.md": validNoteMd("root", "Root", "Entry point."),
+        "vault/root.schema.yml":
+          "version: 1\nschemas:\n  - id: root\n    parent: root\n    children: []\n",
+      },
+      { search: { enabled: false } },
+    );
+
+    try {
+      const valid = await runIndex({ cwd: tv.dir });
+      const previousHierarchy = readFileSync(valid.outFile, "utf8");
+      writeFileSync(
+        join(tv.vaultDir, "root.md"),
+        validNoteMd("root", "Root", "Entry point.", "active", "[[missing]]"),
+      );
+      await expect(runIndex({ cwd: tv.dir })).rejects.toThrow(
+        'wikilink "[[missing]]" points at unknown note "missing"',
+      );
+      expect(readFileSync(valid.outFile, "utf8")).toBe(previousHierarchy);
+    } finally {
+      tv.cleanup();
+    }
+  });
+
   it("generates correct hierarchy for a demo-style vault", async () => {
     const tv = createTempVault({
       "vault/root.md": validNoteMd("root", "Root", "Entry point."),

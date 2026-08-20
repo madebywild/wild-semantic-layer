@@ -3,7 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { DEFAULT_SEARCH_CONFIG } from "../packages/semantic-layer/src/config.js";
+import {
+  DEFAULT_SEARCH_CONFIG,
+  DEFAULT_WIKILINK_CONFIG,
+} from "../packages/semantic-layer/src/config.js";
 import type { Embedder } from "../packages/semantic-layer/src/search/embedder.js";
 import type { ResolvedConfig } from "../packages/semantic-layer/src/types.js";
 
@@ -69,6 +72,7 @@ export function createResolvedConfig(overrides?: Partial<ResolvedConfig>): Resol
     frontmatter: { requiredExtraFields: [] },
     externalInvariants: [],
     evolution: { stagingDir: "vault/.semantic-layer/refinements" },
+    wikilinks: { ...DEFAULT_WIKILINK_CONFIG },
     search: DEFAULT_SEARCH_CONFIG,
     configFile: undefined,
     repoRoot: overrides?.repoRoot ?? "/tmp/test-repo",

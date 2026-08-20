@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Embedder } from "../search/embedder.js";
-import type { ResolvedConfig } from "../types.js";
+import type { ResolvedConfig, ResolvedWikilinkConfig } from "../types.js";
 import { dbFileForConfig, openDatabase, type SqliteConnection } from "./connection.js";
 import { SCHEMA_VERSION } from "./schema.js";
 
@@ -16,6 +16,7 @@ export type IndexMeta = {
   lastIndexedAt: string;
   embedding: IndexEmbeddingMeta;
   chunking: { strategy: string; maxChunkChars: number };
+  wikilinks: ResolvedWikilinkConfig;
   noteContentHashes: Record<string, string>;
 };
 
@@ -28,6 +29,7 @@ function validMeta(meta: unknown): meta is IndexMeta {
     typeof value.vaultDir === "string" &&
     typeof value.chunking?.strategy === "string" &&
     typeof value.chunking?.maxChunkChars === "number" &&
+    (value.wikilinks?.aliasOrder === "dendron" || value.wikilinks?.aliasOrder === "obsidian") &&
     (value.embedding?.kind === "embedder" || value.embedding?.kind === "fts-only") &&
     value.noteContentHashes !== null &&
     typeof value.noteContentHashes === "object"
@@ -110,6 +112,9 @@ export function configStalenessReasons(config: ResolvedConfig, meta: IndexMeta):
     meta.chunking.maxChunkChars !== config.search.chunking.maxChunkChars
   ) {
     reasons.push("chunking config changed since the index was built");
+  }
+  if (meta.wikilinks.aliasOrder !== config.wikilinks.aliasOrder) {
+    reasons.push("wikilink alias-order config changed since the index was built");
   }
   return reasons;
 }

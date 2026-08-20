@@ -43,6 +43,7 @@ export type {
   ResolvedCodeRef,
   ResolvedConfig,
   ResolvedSearchConfig,
+  ResolvedWikilinkConfig,
   SchemaDoc,
   SearchChunkingStrategy,
   SearchConfig,
@@ -53,4 +54,6 @@ export type {
   SearchQueryResult,
   SemanticLayerConfig,
   Status,
+  WikilinkAliasOrder,
+  WikilinkConfig,
 } from "./types.js";

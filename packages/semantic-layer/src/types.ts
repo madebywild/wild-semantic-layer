@@ -149,6 +149,18 @@ export type SearchChunkingStrategy = "whole-note" | "heading";
 
 export type SearchMode = "fts" | "vector" | "hybrid";
 
+/** Which established wikilink convention determines the destination around a pipe. */
+export type WikilinkAliasOrder = "dendron" | "obsidian";
+
+export type WikilinkConfig = {
+  /** `dendron` parses `[[alias|target]]`; `obsidian` parses `[[target|alias]]`. */
+  aliasOrder?: WikilinkAliasOrder;
+};
+
+export type ResolvedWikilinkConfig = {
+  aliasOrder: WikilinkAliasOrder;
+};
+
 /** Which embedder produces vectors for the search index; a discriminated union so provider-specific fields stay valid. */
 export type SearchEmbeddingProviderConfig =
   | { provider: "local"; model?: string; cacheDir?: string }
@@ -191,14 +203,16 @@ export type SemanticLayerConfig = {
   evolution: {
     stagingDir: string;
   };
+  wikilinks?: WikilinkConfig;
   search?: SearchConfig;
 };
 
-export type ResolvedConfig = Omit<SemanticLayerConfig, "index" | "search"> & {
+export type ResolvedConfig = Omit<SemanticLayerConfig, "index" | "search" | "wikilinks"> & {
   index: {
     file: string;
     codeRefsFile?: string;
   };
+  wikilinks: ResolvedWikilinkConfig;
   search: ResolvedSearchConfig;
   configFile?: string;
   repoRoot: string;
@@ -250,12 +264,14 @@ export type SearchQueryResult = {
 export type BacklinkResult = {
   sourceId: string;
   sourceTitle: string;
+  /** Shortest exact heading path that uniquely identifies the linked section. */
   anchor?: string;
   status: string;
 };
 export type ForwardLinkResult = {
   targetId: string;
   targetTitle: string;
+  /** Shortest exact heading path that uniquely identifies the linked section. */
   anchor?: string;
   status: string;
 };

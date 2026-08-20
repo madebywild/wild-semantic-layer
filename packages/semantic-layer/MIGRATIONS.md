@@ -1,5 +1,30 @@
 # @madebywild/semantic-layer migrations
 
+## Next release: unified wikilink validation
+
+Wikilink extraction and validation now share one parser. Both `check` and
+`index` reject dangling notes, missing or ambiguous headings, multiple pipes,
+and empty target/heading segments before graph state is written. Anchor-only
+links such as `[[#Setup]]` resolve against their source note, nested heading
+paths honor every `#` segment, repeated semantic links produce one edge, and
+heading identity preserves punctuation and Unicode rather than validating via
+a lossy slug.
+
+The existing Dendron `[[alias|target]]` order remains the default, matching the
+package's documented Dendron-style format without changing existing vaults.
+Set the following for an Obsidian-authored `[[target|alias]]` vault:
+
+```yaml
+wikilinks:
+  aliasOrder: obsidian
+```
+
+The alias order is stored in SQLite index metadata. Changing it makes the
+derived index stale and triggers a full rebuild; no manual database migration
+is necessary. Graph `anchor` results now contain the shortest exact heading
+path that uniquely identifies the destination instead of a punctuation-losing
+slug.
+
 ## 2.0.0
 
 `2.0.0` replaces the LadybugDB index with Node's built-in `node:sqlite` and a
