@@ -8,11 +8,11 @@
     "CLAUDE.md"
   ],
   "managedSourcePaths": [
-    ".harness/src/prompts/system.md",
-    ".harness/src/prompts/system.overrides.claude.yaml",
-    ".harness/src/prompts/system.overrides.codex.yaml",
-    ".harness/src/prompts/system.overrides.copilot.yaml",
-    ".harness/src/prompts/system.overrides.cursor.yaml",
+    ".harness/src/prompt-sections/system/OVERRIDES.claude.yaml",
+    ".harness/src/prompt-sections/system/OVERRIDES.codex.yaml",
+    ".harness/src/prompt-sections/system/OVERRIDES.copilot.yaml",
+    ".harness/src/prompt-sections/system/OVERRIDES.cursor.yaml",
+    ".harness/src/prompt-sections/system/SECTION.md",
     ".harness/src/settings/claude.json",
     ".harness/src/settings/codex.toml",
     ".harness/src/settings/copilot.json"

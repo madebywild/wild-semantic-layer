@@ -12,8 +12,8 @@ importers:
         specifier: ^2.4.15
         version: 2.4.15
       '@madebywild/agent-harness-framework':
-        specifier: ^1.10.1
-        version: 1.10.1
+        specifier: ^2.0.0
+        version: 2.0.0
       '@types/node':
         specifier: 25.7.0
         version: 25.7.0
@@ -533,15 +533,15 @@ packages:
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}
 
-  '@madebywild/agent-harness-framework@1.10.1':
-    resolution: {integrity: sha512-g4bewpxd5Ho/V7PplWIfXO+ygs0kH/1nv7XuL65q4rGsH+fqQ5L0460CKYqWjZK6h+3fWxiph4G7ANiE8HcYDA==}
+  '@madebywild/agent-harness-framework@2.0.0':
+    resolution: {integrity: sha512-Y1R0XupKqO36ZMC5Q29CxYCXcxAim7UScFvH71+5+WBxsgL+2xcPOEnGj+9pZHN+t9b8VJIPSZq9gwhkuqrcvA==}
     hasBin: true
 
-  '@madebywild/agent-harness-manifest@1.10.1':
-    resolution: {integrity: sha512-wKJ0SboBoOKrHGh8eSuK1NSlU3VUZYu4tD5ugebZytTwe03tOmsTEx5r3bui07pUEJ56VHJjM2IUunxHau3mkA==}
+  '@madebywild/agent-harness-manifest@2.0.0':
+    resolution: {integrity: sha512-gTuUIG+BtjZRR1sBjTjXYNLyzePOZE+S5d6qHwPgW5I9yx5ikjK1WdX92A1YXBC02KEoNlWiZkmW3f4M+HVJPA==}
 
-  '@madebywild/agent-harness-tui@1.10.1':
-    resolution: {integrity: sha512-gqxloj+/TkroC+pvquFKFW35S/O8sv6KzfKptueq1q/s2rYQLz/im4Yl1VsYbuVFxX0fMY/tTJ+cVzlGVQJntQ==}
+  '@madebywild/agent-harness-tui@2.0.0':
+    resolution: {integrity: sha512-AxjgPp4hYvnpgiGBAd0Iv/ApU63AuXMTv86s5lgqiJqqCkgZjwb875gADj2oE38v+VvGQBi9DhaJqbNqZIrAYQ==}
 
   '@napi-rs/wasm-runtime@1.1.4':
     resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
@@ -2515,12 +2515,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@madebywild/agent-harness-framework@1.10.1':
+  '@madebywild/agent-harness-framework@2.0.0':
     dependencies:
       '@iarna/toml': 2.2.5
       '@inkjs/ui': 2.0.0(ink@6.8.0(react@19.2.6))
-      '@madebywild/agent-harness-manifest': 1.10.1
-      '@madebywild/agent-harness-tui': 1.10.1
+      '@madebywild/agent-harness-manifest': 2.0.0
+      '@madebywild/agent-harness-tui': 2.0.0
       chokidar: 5.0.0
       commander: 14.0.3
       gray-matter: 4.0.3
@@ -2533,11 +2533,11 @@ snapshots:
       - react-devtools-core
       - utf-8-validate
 
-  '@madebywild/agent-harness-manifest@1.10.1':
+  '@madebywild/agent-harness-manifest@2.0.0':
     dependencies:
       zod: 4.4.3
 
-  '@madebywild/agent-harness-tui@1.10.1':
+  '@madebywild/agent-harness-tui@2.0.0':
     dependencies:
       '@inkjs/ui': 2.0.0(ink@6.8.0(react@19.2.6))
       ink: 6.8.0(react@19.2.6)
