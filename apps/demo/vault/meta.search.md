@@ -5,7 +5,7 @@ desc: Local full-text + vector search over this vault.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-19
+last_verified: 2026-08-29
 ttl_days: 180
 tags: [meta, search]
 layer: demo
@@ -39,6 +39,10 @@ Unicode tokens, deduplicates them, removes a conservative set of common English
 function words, and OR-composes the remaining terms. If filtering removes every
 term, it falls back to the safe deduplicated tokens so short stopword-only
 queries still work.
+
+Index writes are also serialized across processes: see [[meta.indexing]] for the
+per-vault lock that makes a second concurrent index run fail fast instead of
+racing this database and the generated files.
 
 SQLite runs in WAL mode with `synchronous=FULL`; every index mutation and its
 FTS integrity check share one transaction. Corruption-class failures are

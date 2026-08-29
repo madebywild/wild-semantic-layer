@@ -1,5 +1,28 @@
 # @madebywild/semantic-layer migrations
 
+## Next release: one index run per vault
+
+Every path that writes derived state — `index`, `search-index`,
+`refine promote`, the automatic build inside `search`, and corruption recovery —
+now takes an exclusive lock file at `vault/.semantic-layer/index.lock`. A second
+concurrent run fails immediately with an `IndexLockError` instead of racing:
+previously two runs could interleave into `HIERARCHY.md` and `code-refs.json`,
+or fail unpredictably with `SQLite WAL checkpoint did not fully drain`.
+
+Consumer actions:
+
+- Add `**/.semantic-layer/index.lock` to any ignore file that already lists
+  `**/.semantic-layer/vault.sqlite*`.
+- Serialize CI jobs, git hooks, or agent hooks that ran `index` in parallel on
+  the same vault; `Promise.all([indexResolved(config), indexResolved(config)])`
+  now rejects one branch instead of serializing silently.
+
+Read-only `search` and `graph` are unaffected and still run during an index
+build. A lock left behind by a killed run is reclaimed on the next run when its
+pid is gone and it was recorded on the same host; a lock from another host must
+be removed by hand. The `2.0.0` note below advised running only one full v2
+index build per vault at a time; that is now enforced.
+
 ## Next release: unified wikilink validation
 
 Wikilink extraction and validation now share one parser. Both `check` and

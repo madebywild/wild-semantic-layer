@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { withIndexLock } from "../index-lock.js";
 import type { ResolvedConfig } from "../types.js";
 import { getPool, installExitHook, type PooledDatabase } from "./pool.js";
 import { clearSearchCache } from "./queries/cache.js";
@@ -124,14 +125,17 @@ function quarantineDatabaseLocked(dbPath: string): string[] {
  * `isCorruptionError` returns true; regular read commands must surface their original error.
  */
 export async function recoverCorruptIndex(config: ResolvedConfig): Promise<string[]> {
-  const dbPath = dbFileForConfig(config);
-  const pool = getPool();
-  const run = pool.workLock.then(() => quarantineDatabaseLocked(dbPath));
-  pool.workLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  // Quarantine renames the SQLite files, so it must not run while another process indexes.
+  return withIndexLock(config, () => {
+    const dbPath = dbFileForConfig(config);
+    const pool = getPool();
+    const run = pool.workLock.then(() => quarantineDatabaseLocked(dbPath));
+    pool.workLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  });
 }
 
 const reentrancyGuard = new AsyncLocalStorage<boolean>();

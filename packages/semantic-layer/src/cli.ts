@@ -218,6 +218,10 @@ Options:
 
 Regenerate the SQLite vault index and compatibility sidecars.
 
+One index run per vault may write at a time. A second concurrent run fails
+immediately; the lock lives at <vault>/.semantic-layer/index.lock and a lock
+left behind by a killed run is reclaimed automatically on the same host.
+
 Options:
   --config <path>  Config file path
   --vault <path>   Vault directory override

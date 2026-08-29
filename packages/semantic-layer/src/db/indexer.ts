@@ -14,6 +14,7 @@ import { extractTagEdges } from "../extract/tags.js";
 import type { WikilinkEdge } from "../extract/wikilinks.js";
 import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
+import { withIndexLock } from "../index-lock.js";
 import {
   createEmbedder,
   type Embedder,
@@ -85,6 +86,14 @@ export async function buildIndex(
   options: { full?: boolean } = {},
   deps: IndexerDeps = {},
 ): Promise<IndexBuildResult> {
+  return withIndexLock(config, () => buildIndexLocked(config, options, deps));
+}
+
+async function buildIndexLocked(
+  config: ResolvedConfig,
+  options: { full?: boolean },
+  deps: IndexerDeps,
+): Promise<IndexBuildResult> {
   const dbExisted = existsSync(dbFileForConfig(config));
   try {
     return await withConnectionForConfig(config, (conn) =>
@@ -107,6 +116,17 @@ export async function buildIndexWithConnection(
   config: ResolvedConfig,
   options: { full?: boolean; dbExisted?: boolean } = {},
   deps: IndexerDeps = {},
+): Promise<IndexBuildResult> {
+  // Callers that already hold a connection (search's cold build and --rebuild) reach the
+  // writer through here, so the lock covers them too.
+  return withIndexLock(config, () => buildIndexLockedWithConnection(conn, config, options, deps));
+}
+
+async function buildIndexLockedWithConnection(
+  conn: SqliteConnection,
+  config: ResolvedConfig,
+  options: { full?: boolean; dbExisted?: boolean },
+  deps: IndexerDeps,
 ): Promise<IndexBuildResult> {
   const ownEmbedder = deps.embedder === undefined;
   let embedder: Embedder | undefined;
