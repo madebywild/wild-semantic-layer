@@ -9,6 +9,7 @@ import { DEFAULT_CODE_REFS_FILE, type LoadConfigOptions, loadConfig } from "../c
 import type { SqliteConnection } from "../db/connection.js";
 import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
+import { withIndexLock } from "../index-lock.js";
 import type { Embedder } from "../search/embedder.js";
 import type { BuildIndexResult, Note, ResolvedCodeRef, ResolvedConfig } from "../types.js";
 import { readVault } from "../vault.js";
@@ -64,6 +65,15 @@ export async function indexResolvedWithConnection(
 }
 
 async function indexResolvedInternal(
+  config: ResolvedConfig,
+  options: InternalIndexCommandOptions,
+): Promise<IndexCommandResult> {
+  // One index run per vault at a time: the generated files and the SQLite build are written
+  // outside any shared transaction, so a concurrent run would interleave into both.
+  return withIndexLock(config, () => indexLocked(config, options));
+}
+
+async function indexLocked(
   config: ResolvedConfig,
   options: InternalIndexCommandOptions,
 ): Promise<IndexCommandResult> {

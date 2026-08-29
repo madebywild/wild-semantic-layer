@@ -276,6 +276,52 @@ describe("semantic-layer CLI blackbox", () => {
     }
   });
 
+  it("refuses a concurrent index run and reclaims a lock left by a killed one", async () => {
+    // Reuses the monorepo workspace: it is installed and indexed by the tests above.
+    const workspace = scenarios.monorepoTs;
+    const lockFile = "vault/.semantic-layer/index.lock";
+
+    const clean = await cli(workspace, ["index"]);
+    expect(clean.exitCode, clean.output).toBe(0);
+    const leftover = await run(workspace, ["test", "-e", lockFile]);
+    expect(leftover.exitCode, "a successful index must not leave a lock behind").not.toBe(0);
+
+    // A detached sleeper gives the planted lock a genuinely live pid inside the container.
+    const holder = await run(workspace, ["sh", "-c", "nohup sleep 600 >/dev/null 2>&1 & echo $!"]);
+    expect(holder.exitCode, holder.output).toBe(0);
+    const holderPid = holder.output.trim();
+    expect(holderPid).toMatch(/^\d+$/);
+
+    await writeRuntimeFile(
+      workspace,
+      lockFile,
+      JSON.stringify({
+        pid: Number(holderPid),
+        hostname: (await run(workspace, ["hostname"])).output.trim(),
+        startedAt: new Date().toISOString(),
+        command: "semantic-layer index",
+      }),
+    );
+
+    const blocked = await cli(workspace, ["index"]);
+    expect(blocked.exitCode, blocked.output).not.toBe(0);
+    expect(blocked.output).toContain("another index run is already in progress");
+    expect(blocked.output).toContain(holderPid);
+    expect(blocked.output).toContain("index.lock");
+
+    // Reading the vault stays available while an index run holds the lock.
+    const search = await cli(workspace, ["search", "authentication", "--mode", "fts"]);
+    expect(search.exitCode, search.output).toBe(0);
+
+    const kill = await run(workspace, ["kill", "-9", holderPid]);
+    expect(kill.exitCode, kill.output).toBe(0);
+
+    const reclaimed = await cli(workspace, ["index"]);
+    expect(reclaimed.exitCode, reclaimed.output).toBe(0);
+    const removed = await run(workspace, ["test", "-e", lockFile]);
+    expect(removed.exitCode, "the reclaimed lock must be released again").not.toBe(0);
+  });
+
   it("runs the simple JavaScript consumer refinement lifecycle", async () => {
     const workspace = scenarios.jsAgent;
     await install(workspace);

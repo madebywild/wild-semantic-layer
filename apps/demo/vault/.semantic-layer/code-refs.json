@@ -24,6 +24,51 @@
       ]
     },
     {
+      "note_id": "meta.indexing",
+      "ref": {
+        "file": "packages/semantic-layer/src/index-lock.ts",
+        "symbol": "IndexLockError",
+        "kind": "class"
+      },
+      "kind": "class",
+      "namespaces": [
+        "value",
+        "type"
+      ],
+      "line": 25,
+      "column": 14,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/index-lock.ts",
+          "kind": "class",
+          "line": 25,
+          "column": 14
+        }
+      ]
+    },
+    {
+      "note_id": "meta.indexing",
+      "ref": {
+        "file": "packages/semantic-layer/src/index-lock.ts",
+        "symbol": "withIndexLock",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 68,
+      "column": 23,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/index-lock.ts",
+          "kind": "function",
+          "line": 68,
+          "column": 23
+        }
+      ]
+    },
+    {
       "note_id": "meta.wikilinks",
       "ref": {
         "file": "packages/semantic-layer/src/config.ts",

@@ -369,6 +369,26 @@ see which notes are expensive before opening them; for large notes,
 `semantic-layer search "<query>" --json` returns section-level chunks instead of
 the whole note.
 
+Only one index run per vault may write at a time. Every path that rebuilds
+derived state — `index`, `search-index`, `refine promote`, the automatic build
+inside `search`, and corruption recovery — takes an exclusive lock file at
+`vault/.semantic-layer/index.lock` before it writes. A second concurrent run
+does not wait: it fails immediately with an `IndexLockError` naming the holding
+pid, host, and start time, and the CLI exits 1. Read-only `search` and `graph`
+never take the lock, so agents can keep querying while an index run is in
+flight.
+
+A lock left behind by a killed run is reclaimed automatically on the next run,
+as long as the recorded pid is gone and the lock was written on the same host.
+A lock recorded on a different host (or in another container's pid namespace)
+is never reclaimed automatically, because its pid means nothing locally: delete
+`vault/.semantic-layer/index.lock` once that run is known to be gone. Ignore
+the lock file in version control:
+
+```gitignore
+**/.semantic-layer/index.lock
+```
+
 The code refs sidecar is generated JSON:
 
 ```json
@@ -444,6 +464,9 @@ index-write transaction. Embeddings are Float32 BLOBs; vector and hybrid
 search use an in-process exact-cosine cache, while filters and changed notes
 are refreshed after a successful transaction. A corruption-class database
 failure quarantines the derived SQLite artifacts and triggers a full rebuild.
+The index lock removes concurrent *writers*; a long-lived reader in another
+process can still make an index run's `wal_checkpoint(TRUNCATE)` report a busy
+WAL.
 
 `--mode` is `fts`, `vector`, or `hybrid` (default from `search.defaultMode`).
 `--status`, `--tag`, and `--audience` filter results by frontmatter; `--tag`
@@ -587,4 +610,5 @@ Exports:
 - `runSearch`
 - `runGraph`
 - `LocalEmbedderUnavailableError`
+- `IndexLockError`, `indexLockFileForConfig`
 - TypeScript types for config, notes, schemas, search/graph results, and check results

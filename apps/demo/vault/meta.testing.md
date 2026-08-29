@@ -5,7 +5,7 @@ desc: Test-suite layers and isolation guarantees for the semantic-layer package.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-19
+last_verified: 2026-08-29
 ttl_days: 180
 tags: [meta, testing]
 layer: demo
@@ -43,5 +43,8 @@ Node 24 are the supported validation targets. SQLite state is one
 and reopen it. Integration coverage includes full and incremental indexing,
 FTS-only fallback, metadata/config drift, filters and graph queries,
 pre-transaction embedding failures, FTS integrity recovery, corruption
-recovery (including rejection of message-only false positives), and migration
-that preserves and gitignores legacy `.lbug` artifacts.
+recovery (including rejection of message-only false positives), migration
+that preserves and gitignores legacy `.lbug` artifacts, and index-lock
+contention: a planted live holder must block `index`, `search --rebuild`, and
+corruption recovery without touching generated files, while a lock left by a
+killed process is reclaimed. See [[meta.indexing]].

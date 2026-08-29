@@ -4,6 +4,8 @@ export { runGraph } from "./commands/graph.js";
 export { indexResolved, runIndex } from "./commands/index.js";
 export { runSearch } from "./commands/search.js";
 export { loadConfig } from "./config.js";
+export type { IndexLockHolder } from "./index-lock.js";
+export { IndexLockError, indexLockFileForConfig } from "./index-lock.js";
 export { runInit } from "./init.js";
 export {
   runRefinementList,
