@@ -1,6 +1,13 @@
 # @madebywild/semantic-layer migrations
 
-## Next release: one index run per vault
+## 2.1.0
+
+`2.1.0` is a minor release: it adds a cross-process index lock and unifies
+wikilink validation between `check` and `index`. No exported API is removed or
+renamed, and existing vaults and configs keep working. Both changes alter
+behavior in ways worth reading before upgrading.
+
+### One index run per vault
 
 Every path that writes derived state — `index`, `search-index`,
 `refine promote`, the automatic build inside `search`, and corruption recovery —
@@ -23,7 +30,7 @@ pid is gone and it was recorded on the same host; a lock from another host must
 be removed by hand. The `2.0.0` note below advised running only one full v2
 index build per vault at a time; that is now enforced.
 
-## Next release: unified wikilink validation
+### Unified wikilink validation
 
 Wikilink extraction and validation now share one parser. Both `check` and
 `index` reject dangling notes, missing or ambiguous headings, multiple pipes,
