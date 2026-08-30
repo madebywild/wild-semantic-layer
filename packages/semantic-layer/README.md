@@ -379,11 +379,12 @@ never take the lock, so agents can keep querying while an index run is in
 flight.
 
 A lock left behind by a killed run is reclaimed automatically on the next run,
-as long as the recorded pid is gone and the lock was written on the same host.
-A lock recorded on a different host (or in another container's pid namespace)
-is never reclaimed automatically, because its pid means nothing locally: delete
-`vault/.semantic-layer/index.lock` once that run is known to be gone. Ignore
-the lock file in version control:
+as long as the recorded pid is no longer running (including a Linux zombie
+awaiting reaping) and the lock was written on the same host. A lock recorded on
+a different host (or in another container's pid namespace) is never reclaimed
+automatically, because its pid means nothing locally: delete
+`vault/.semantic-layer/index.lock` once that run is known to be gone. Ignore the
+lock file in version control:
 
 ```gitignore
 **/.semantic-layer/index.lock

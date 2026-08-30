@@ -12,7 +12,7 @@ Sizes are rough token estimates (chars/4). For large notes, prefer
   - **demo.runtime** - Runtime contract. Runtime assumptions for the demo app. (~36 tok)
 - **meta** - Metadata. Meta notes for contributors and agents. (~62 tok)
   - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault. (~224 tok)
-  - **meta.indexing** - Index concurrency. One index writer per vault, enforced by a cross-process lock file. (~373 tok)
+  - **meta.indexing** - Index concurrency. One index writer per vault, enforced by a cross-process lock file. (~388 tok)
   - **meta.search** - Search index. Local full-text + vector search over this vault. (~696 tok)
   - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package. (~598 tok)
   - **meta.wikilinks** - Wikilink semantics. Validated wikilink grammar shared by check and index. (~430 tok)

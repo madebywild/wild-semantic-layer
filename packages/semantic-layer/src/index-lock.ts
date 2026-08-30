@@ -201,10 +201,29 @@ function isHolderAlive(holder: IndexLockHolder | undefined): boolean {
   if (holder.pid === process.pid) return false;
   try {
     process.kill(holder.pid, 0);
-    return true;
+    // `kill(pid, 0)` succeeds for a Linux zombie even though it can no longer own a lock.
+    // Treat it as stale so a killed index run cannot wedge a vault while its parent has not
+    // reaped it yet (notably in minimal container PID namespaces).
+    return !isZombieProcess(holder.pid);
   } catch (error) {
     // EPERM means the pid exists but belongs to another user, so the lock is still live.
     return errorCode(error) === "EPERM";
+  }
+}
+
+function isZombieProcess(pid: number): boolean {
+  // `/proc` is Linux-specific; other platforms retain the portable `kill(pid, 0)` behavior.
+  if (process.platform !== "linux") return false;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The comm field is parenthesized and can itself contain spaces or parentheses. The state
+    // immediately follows its final closing parenthesis.
+    const commandEnd = stat.lastIndexOf(")");
+    return commandEnd >= 0 && stat[commandEnd + 2] === "Z";
+  } catch {
+    // The process disappeared while checking it. The next acquisition attempt will observe the
+    // missing pid through `kill(pid, 0)` or atomically settle the lock file race.
+    return false;
   }
 }
 

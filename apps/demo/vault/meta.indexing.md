@@ -5,7 +5,7 @@ desc: One index writer per vault, enforced by a cross-process lock file.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-29
+last_verified: 2026-08-30
 ttl_days: 180
 tags: [meta, indexing]
 layer: demo
@@ -34,11 +34,12 @@ CLI exits 1. Because nothing ever blocks on the lock, it cannot form a wait
 cycle with SQLite's own busy timeout no matter which is taken first.
 
 The lock file records `pid`, `hostname`, `startedAt`, and `command`. A lock left
-behind by a killed run is reclaimed on the next run when its pid is gone and it
-was written on the same host; a lock recorded on another host or in another
-container's pid namespace is never reclaimed automatically, because its pid
-means nothing locally, and has to be deleted by hand. The file is gitignored
-alongside `vault.sqlite`.
+behind by a killed run is reclaimed on the next run when its pid is no longer
+running (including a Linux zombie awaiting reaping) and it was written on the
+same host; a lock recorded on another host or in another container's pid
+namespace is never reclaimed automatically, because its pid means nothing
+locally, and has to be deleted by hand. The file is gitignored alongside
+`vault.sqlite`.
 
 What the lock does not cover: a long-lived reader in another process can still
 make an index run's `wal_checkpoint(TRUNCATE)` report a busy WAL. Only
