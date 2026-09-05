@@ -7,7 +7,7 @@ import { chunkNote } from "../extract/chunking.js";
 import type { CodeRefEdge } from "../extract/code-refs.js";
 import { extractCodeRefEdges } from "../extract/code-refs.js";
 import type { HierarchyEdge } from "../extract/hierarchy.js";
-import { extractHierarchyEdges } from "../extract/hierarchy.js";
+import { extractHierarchyEdges, validateHierarchyAncestors } from "../extract/hierarchy.js";
 import { extractSchemaEdges } from "../extract/schema-relations.js";
 import type { TagEdge } from "../extract/tags.js";
 import { extractTagEdges } from "../extract/tags.js";
@@ -458,6 +458,10 @@ async function readValidatedVault(config: ResolvedConfig): Promise<{
   const vault = readVault(config.vaultDir);
   const { validNotes, errors: frontmatterErrors } = validateVaultNotes(vault.notes);
   if (frontmatterErrors.length > 0) throw new Error(formatIndexErrors(frontmatterErrors));
+  // Before the slower code-ref and wikilink passes, and before any write: an edge to a missing
+  // ancestor would otherwise reach SQLite and fail on the foreign key.
+  const hierarchyErrors = validateHierarchyAncestors(validNotes);
+  if (hierarchyErrors.length > 0) throw new Error(formatIndexErrors(hierarchyErrors));
   const { edges: codeRefEdges, errors: codeRefErrors } = await extractCodeRefEdges(
     validNotes,
     config.repoRoot,

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { collectCodeRefRequestsFromNotes, resolveCodeRefs } from "./code-refs.js";
 import { type LoadConfigOptions, loadConfig } from "./config.js";
+import { validateHierarchyAncestors } from "./extract/hierarchy.js";
 import { extractVaultWikilinks } from "./extract/wikilinks.js";
 import { validateNoteFrontmatter } from "./frontmatter.js";
 import { validateRefinementStorage } from "./refinement-store.js";
@@ -49,7 +50,7 @@ export function checkResolved(config: ResolvedConfig): CheckResult {
     }
   }
 
-  checkHierarchy(notes, fail);
+  for (const error of validateHierarchyAncestors(notes)) fail(error);
   checkSchemas(notes, schemas, fail);
   for (const error of extractVaultWikilinks(notes, config.wikilinks).errors) fail(error);
   checkCodeRefs(notes, validNotes, config.repoRoot, fail);
@@ -58,19 +59,6 @@ export function checkResolved(config: ResolvedConfig): CheckResult {
   for (const error of validateRefinementStorage(config)) fail(`refinement ${error}`);
 
   return { errors, noteCount: notes.size };
-}
-
-function checkHierarchy(notes: Map<string, { id: string }>, fail: (message: string) => void) {
-  for (const id of notes.keys()) {
-    if (id === "root") continue;
-    const parts = id.split(".");
-    for (let i = 1; i < parts.length; i += 1) {
-      const ancestor = parts.slice(0, i).join(".");
-      if (!notes.has(ancestor)) {
-        fail(`[${id}] missing ancestor "${ancestor}.md" in the hierarchy`);
-      }
-    }
-  }
 }
 
 function checkSchemas(

@@ -2,8 +2,9 @@
 
 ## 2.2.0 (unreleased)
 
-`2.2.0` adds a document-vector cache to `index`. No exported API changes, and
-no config or vault change is required. The version is not bumped yet: the
+`2.2.0` adds a document-vector cache to `index`, and moves the hierarchy
+ancestor rule from `check` alone into both commands. No exported API is removed
+or renamed, and no config or vault change is required. The version is not bumped yet: the
 release gates (`pnpm check` and `pnpm check:release`) belong to the release
 commit.
 
@@ -32,6 +33,26 @@ Consumer actions:
 Entries that no build used for 30 days are removed when the embedder closes,
 which bounds the file. Any store failure (a corrupt or unwritable file) degrades
 to embedding without the cache instead of failing the build.
+
+### The hierarchy rule now runs in `index`
+
+`check` has always rejected a dotted note whose ancestor note is missing. The
+index path did not, so the missing ancestor reached SQLite and stopped the build
+with `FOREIGN KEY constraint failed`, which names neither the note nor the
+missing parent. `index` now applies the same rule and reports it in the same
+words, before code references, embedding, or any write:
+
+```text
+[demo.runtime.ui] missing ancestor "demo.runtime.md" in the hierarchy
+```
+
+Consumer actions:
+
+- A vault that `check` already passes is unaffected.
+- A vault with `search.enabled: false` is newly affected: its `index` run wrote
+  `HIERARCHY.md` for a broken hierarchy before and now reports the same error as
+  `check`. Add the missing ancestor note, or rename the child out of the
+  hierarchy.
 
 ### New environment variables
 

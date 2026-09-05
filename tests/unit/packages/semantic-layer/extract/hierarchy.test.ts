@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { extractHierarchyEdges } from "../../../../../packages/semantic-layer/src/extract/hierarchy.js";
+import {
+  extractHierarchyEdges,
+  validateHierarchyAncestors,
+} from "../../../../../packages/semantic-layer/src/extract/hierarchy.js";
 import type { Note } from "../../../../../packages/semantic-layer/src/types.js";
 
 function makeNote(id: string): Note {
@@ -55,5 +58,38 @@ describe("extractHierarchyEdges", () => {
       { parent: "x", child: "x.y" },
       { parent: "x.y", child: "x.y.z" },
     ]);
+  });
+});
+
+describe("validateHierarchyAncestors", () => {
+  it("names the note and the missing parent file, which a foreign key error cannot", () => {
+    const notes = new Map<string, Note>([
+      ["root", makeNote("root")],
+      ["orphan.child", makeNote("orphan.child")],
+    ]);
+
+    expect(validateHierarchyAncestors(notes)).toEqual([
+      '[orphan.child] missing ancestor "orphan.md" in the hierarchy',
+    ]);
+  });
+
+  it("reports every missing level of a deep id", () => {
+    const notes = new Map<string, Note>([["x.y.z", makeNote("x.y.z")]]);
+
+    expect(validateHierarchyAncestors(notes)).toEqual([
+      '[x.y.z] missing ancestor "x.md" in the hierarchy',
+      '[x.y.z] missing ancestor "x.y.md" in the hierarchy',
+    ]);
+  });
+
+  it("accepts a hierarchy whose every ancestor note exists", () => {
+    const notes = new Map<string, Note>([
+      ["root", makeNote("root")],
+      ["demo", makeNote("demo")],
+      ["demo.runtime", makeNote("demo.runtime")],
+      ["demo.runtime.ui", makeNote("demo.runtime.ui")],
+    ]);
+
+    expect(validateHierarchyAncestors(notes)).toEqual([]);
   });
 });

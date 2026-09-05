@@ -539,6 +539,14 @@ optimization: an unreadable or corrupt cache file is removed and rebuilt, and a
 store that still fails only means the run embeds everything itself. Set
 `SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE=1` to switch it off.
 
+### Hierarchy rule
+
+A dotted note id names its ancestors, and each ancestor must exist as a note:
+`demo.runtime.ui` needs `demo.md` and `demo.runtime.md`. `check` and `index`
+apply this one rule and report it in the same words
+(`[demo.runtime.ui] missing ancestor "demo.runtime.md" in the hierarchy`).
+`index` applies it before code references, embedding, and any write.
+
 ### Runtime requirements and FTS-only fallback
 
 The package requires Node `>=22.16.0`. This version is deliberate: official
