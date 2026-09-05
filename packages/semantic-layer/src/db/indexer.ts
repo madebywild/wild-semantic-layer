@@ -20,6 +20,7 @@ import {
   type Embedder,
   LocalEmbedderUnavailableError,
 } from "../search/embedder.js";
+import { embeddingCacheFileForConfig, withEmbeddingCache } from "../search/embedding-cache.js";
 import { getHeadSha } from "../search/git-diff.js";
 import type { Note, ResolvedConfig } from "../types.js";
 import { readVault, type Vault } from "../vault.js";
@@ -154,7 +155,13 @@ async function resolveEmbedder(
 ): Promise<{ embedder: Embedder | undefined; ftsOnly: boolean }> {
   if (deps.embedder) return { embedder: deps.embedder, ftsOnly: false };
   try {
-    return { embedder: await createEmbedder(config.search.embedding), ftsOnly: false };
+    // Only the embedder this function owns is wrapped: an injected one belongs to its caller,
+    // and a build is the only place that embeds enough text for the cache to matter.
+    const embedder = await createEmbedder(config.search.embedding);
+    return {
+      embedder: withEmbeddingCache(embedder, embeddingCacheFileForConfig(config)),
+      ftsOnly: false,
+    };
   } catch (error) {
     if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
     if (meta?.embedding.kind === "embedder") {

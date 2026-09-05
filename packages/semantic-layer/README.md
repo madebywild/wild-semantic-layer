@@ -519,6 +519,26 @@ search:
 Set the API key via the `SEMANTIC_LAYER_GEMINI_API_KEY` env var (falls back to
 `GEMINI_API_KEY` for convenience).
 
+### Vector reuse across worktrees
+
+`index` keeps the document vectors it computes in a small SQLite cache, so text
+that has not changed is read back instead of embedded again. The cache lives in
+the repository's shared git directory (`<repo>/.git/semantic-layer/embeddings.sqlite`,
+or the vault's own `.semantic-layer/` directory outside a git repository), which
+every linked worktree of that repository resolves to. A new worktree therefore
+indexes the same notes without paying a full embedding pass: on a 111-note,
+1049-chunk vault this took 19s instead of 3m48s, and both indexes hold
+byte-identical vectors.
+
+A cache entry is addressed by the embedder id, the dimensions, and the text
+itself, so edited notes, changed chunking, and a changed model all miss and
+recompute; there is no invalidation step that can serve a stale vector. Entries
+that no build has used for 30 days are dropped, nothing is written outside the
+repository, and no data is shared between repositories. The cache is an
+optimization: an unreadable or corrupt cache file is removed and rebuilt, and a
+store that still fails only means the run embeds everything itself. Set
+`SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE=1` to switch it off.
+
 ### Runtime requirements and FTS-only fallback
 
 The package requires Node `>=22.16.0`. This version is deliberate: official

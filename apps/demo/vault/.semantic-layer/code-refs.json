@@ -69,6 +69,72 @@
       ]
     },
     {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+        "symbol": "embeddingCacheFileForConfig",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 35,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+          "kind": "function",
+          "line": 35,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+        "symbol": "withEmbeddingCache",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 50,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+          "kind": "function",
+          "line": 50,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/git-diff.ts",
+        "symbol": "getGitCommonDir",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 14,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/git-diff.ts",
+          "kind": "function",
+          "line": 14,
+          "column": 17
+        }
+      ]
+    },
+    {
       "note_id": "meta.wikilinks",
       "ref": {
         "file": "packages/semantic-layer/src/config.ts",
