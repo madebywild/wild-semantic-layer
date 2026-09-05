@@ -5,10 +5,20 @@ desc: Local full-text + vector search over this vault.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-29
+last_verified: 2026-09-05
 ttl_days: 180
 tags: [meta, search]
 layer: demo
+code_refs:
+  - file: packages/semantic-layer/src/search/embedding-cache.ts
+    symbol: withEmbeddingCache
+    kind: function
+  - file: packages/semantic-layer/src/search/embedding-cache.ts
+    symbol: embeddingCacheFileForConfig
+    kind: function
+  - file: packages/semantic-layer/src/search/git-diff.ts
+    symbol: getGitCommonDir
+    kind: function
 ---
 
 # Search index
@@ -39,6 +49,19 @@ Unicode tokens, deduplicates them, removes a conservative set of common English
 function words, and OR-composes the remaining terms. If filtering removes every
 term, it falls back to the safe deduplicated tokens so short stopword-only
 queries still work.
+
+A build does not embed text it has already embedded. Every document vector also
+goes into a cache at `<repo>/.git/semantic-layer/embeddings.sqlite`, the one
+path that every linked worktree of a repository resolves to, so a second
+worktree builds its own index from stored vectors instead of running the model
+again. Outside a git repository the cache falls back to
+`vault/.semantic-layer/embeddings.sqlite`. An entry is addressed by the embedder
+id, the dimensions, and the text, thus edited notes, changed chunking, and a
+changed model all miss and recompute, and a hit gives the vector that a fresh
+build would have written. Entries unused for 30 days are dropped when the
+embedder closes. A corrupt or unwritable cache is removed and rebuilt, and a
+store that still fails only costs the run its reuse.
+`SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE=1` switches the cache off.
 
 Index writes are also serialized across processes: see [[meta.indexing]] for the
 per-vault lock that makes a second concurrent index run fail fast instead of

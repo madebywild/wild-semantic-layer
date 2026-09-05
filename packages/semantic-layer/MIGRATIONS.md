@@ -1,5 +1,64 @@
 # @madebywild/semantic-layer migrations
 
+## 2.2.0 (unreleased)
+
+`2.2.0` adds a document-vector cache to `index`, and moves the hierarchy
+ancestor rule from `check` alone into both commands. No exported API is removed
+or renamed, and no config or vault change is required. The version is not bumped yet: the
+release gates (`pnpm check` and `pnpm check:release`) belong to the release
+commit.
+
+### Vectors are reused across worktrees
+
+`index` now stores each document vector in a small SQLite cache and reads it
+back whenever the same text is embedded again. The cache file is
+`<repo>/.git/semantic-layer/embeddings.sqlite`, which every linked worktree of
+a repository resolves to, so a new worktree builds its index without a full
+embedding pass. Outside a git repository the file falls back to the vault's own
+`.semantic-layer/embeddings.sqlite`.
+
+A cache entry is keyed by the embedder id, the dimensions, and the text, so a
+changed note, changed chunking, or a changed model misses and recomputes. The
+built index is unchanged: on a 1049-chunk vault every stored vector is
+byte-identical to a build with no cache.
+
+Consumer actions:
+
+- None required. The file sits inside the git directory, thus no ignore rule
+  applies to it, and the vault fallback is already covered by an ignore rule for
+  `**/.semantic-layer/`.
+- Set `SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE=1` to switch the cache off, for
+  example to measure a cold build.
+
+Entries that no build used for 30 days are removed when the embedder closes,
+which bounds the file. Any store failure (a corrupt or unwritable file) degrades
+to embedding without the cache instead of failing the build.
+
+### The hierarchy rule now runs in `index`
+
+`check` has always rejected a dotted note whose ancestor note is missing. The
+index path did not, so the missing ancestor reached SQLite and stopped the build
+with `FOREIGN KEY constraint failed`, which names neither the note nor the
+missing parent. `index` now applies the same rule and reports it in the same
+words, before code references, embedding, or any write:
+
+```text
+[demo.runtime.ui] missing ancestor "demo.runtime.md" in the hierarchy
+```
+
+Consumer actions:
+
+- A vault that `check` already passes is unaffected.
+- A vault with `search.enabled: false` is newly affected: its `index` run wrote
+  `HIERARCHY.md` for a broken hierarchy before and now reports the same error as
+  `check`. Add the missing ancestor note, or rename the child out of the
+  hierarchy.
+
+### New environment variables
+
+- `SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE` — any non-empty value disables the
+  document-vector cache described above.
+
 ## 2.1.0
 
 `2.1.0` is a minor release: it adds a cross-process index lock and unifies

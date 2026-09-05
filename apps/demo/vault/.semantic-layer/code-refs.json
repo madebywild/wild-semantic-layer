@@ -24,6 +24,50 @@
       ]
     },
     {
+      "note_id": "meta.hierarchy",
+      "ref": {
+        "file": "packages/semantic-layer/src/extract/hierarchy.ts",
+        "symbol": "extractHierarchyEdges",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 8,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/extract/hierarchy.ts",
+          "kind": "function",
+          "line": 8,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.hierarchy",
+      "ref": {
+        "file": "packages/semantic-layer/src/extract/hierarchy.ts",
+        "symbol": "validateHierarchyAncestors",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 35,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/extract/hierarchy.ts",
+          "kind": "function",
+          "line": 35,
+          "column": 17
+        }
+      ]
+    },
+    {
       "note_id": "meta.indexing",
       "ref": {
         "file": "packages/semantic-layer/src/index-lock.ts",
@@ -65,6 +109,72 @@
           "kind": "function",
           "line": 68,
           "column": 23
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+        "symbol": "embeddingCacheFileForConfig",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 35,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+          "kind": "function",
+          "line": 35,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+        "symbol": "withEmbeddingCache",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 50,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedding-cache.ts",
+          "kind": "function",
+          "line": 50,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/git-diff.ts",
+        "symbol": "getGitCommonDir",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 14,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/git-diff.ts",
+          "kind": "function",
+          "line": 14,
+          "column": 17
         }
       ]
     },

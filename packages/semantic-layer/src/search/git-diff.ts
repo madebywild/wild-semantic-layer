@@ -6,6 +6,23 @@ export function getHeadSha(repoRoot: string): string | undefined {
   return runGit(repoRoot, ["rev-parse", "HEAD"])?.trim();
 }
 
+/**
+ * The repository's shared git directory, or `undefined` outside a git repository. Every linked
+ * worktree of one repository resolves to the same path (the main checkout's `.git`), which makes
+ * it the one location a worktree may write to that its siblings also read.
+ */
+export function getGitCommonDir(repoRoot: string): string | undefined {
+  const absolute = runGit(repoRoot, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ])?.trim();
+  if (absolute) return absolute;
+  // `--path-format` needs git 2.31; older git prints a path relative to the directory git ran in.
+  const relativePath = runGit(repoRoot, ["rev-parse", "--git-common-dir"])?.trim();
+  return relativePath ? resolve(repoRoot, relativePath) : undefined;
+}
+
 /** Whether `sha` is an ancestor of (or equal to) HEAD. False on any git error (e.g. unknown SHA, shallow clone). */
 export function isAncestorOfHead(repoRoot: string, sha: string): boolean {
   return runGit(repoRoot, ["merge-base", "--is-ancestor", sha, "HEAD"]) !== undefined;

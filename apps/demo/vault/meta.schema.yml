@@ -3,10 +3,13 @@ schemas:
   - id: meta
     title: Metadata
     parent: root
-    children: [agent-conventions, indexing, testing, search, wikilinks]
+    children: [agent-conventions, hierarchy, indexing, testing, search, wikilinks]
   - id: agent-conventions
     title: Agent conventions
     desc: Agent operating rules.
+  - id: hierarchy
+    title: Hierarchy rule
+    desc: Ancestor notes required by check and index.
   - id: indexing
     title: Index concurrency
     desc: One index writer per vault, enforced by a lock file.

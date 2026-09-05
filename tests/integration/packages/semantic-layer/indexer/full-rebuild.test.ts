@@ -15,6 +15,21 @@ import {
 } from "../../../../helpers.js";
 
 describe("full SQLite rebuild and migration", () => {
+  it("rejects a note whose parent note is missing instead of failing on the foreign key", async () => {
+    const tv = createTempVault({
+      "vault/root.md": noteMarkdown({ id: "root" }),
+      "vault/orphan.child.md": noteMarkdown({ id: "orphan.child" }),
+    });
+    try {
+      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      await expect(
+        buildIndex(config, { full: true }, { embedder: createFakeEmbedder() }),
+      ).rejects.toThrow('[orphan.child] missing ancestor "orphan.md" in the hierarchy');
+    } finally {
+      tv.cleanup();
+    }
+  });
+
   it("detects config drift and rebuilds the same SQLite index", async () => {
     const tv = createTempVault({
       "vault/root.md": noteMarkdown({ id: "root", body: "# Root\n\nconfig drift token\n" }),

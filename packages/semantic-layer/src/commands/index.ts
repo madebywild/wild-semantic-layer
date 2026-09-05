@@ -7,6 +7,7 @@ import {
 } from "../code-refs.js";
 import { DEFAULT_CODE_REFS_FILE, type LoadConfigOptions, loadConfig } from "../config.js";
 import type { SqliteConnection } from "../db/connection.js";
+import { validateHierarchyAncestors } from "../extract/hierarchy.js";
 import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import { withIndexLock } from "../index-lock.js";
@@ -120,6 +121,8 @@ function readValidNotesAndCodeRefs(config: ResolvedConfig): {
     throw new Error(formatIndexErrors(errors));
   }
 
+  const hierarchyErrors = validateHierarchyAncestors(validNotes);
+  if (hierarchyErrors.length > 0) throw new Error(formatIndexErrors(hierarchyErrors));
   const collected = collectCodeRefRequestsFromNotes(validNotes, new Set(validNotes.keys()));
   const codeRefs = resolveCodeRefs(collected.requests, config.repoRoot);
   const codeRefErrors = [...collected.errors, ...codeRefs.errors];
