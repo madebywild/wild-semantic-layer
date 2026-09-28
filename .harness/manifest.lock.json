@@ -10,7 +10,7 @@
       },
       "registry": "local",
       "sourceSha256": "97a885199182bfde3526ba92cb5bc170a1474b777aa121442b4f24a1b7d03ef0",
-      "type": "prompt"
+      "type": "prompt_section"
     },
     {
       "id": "claude",
@@ -34,8 +34,8 @@
       "type": "settings"
     }
   ],
-  "generatedAt": "2026-08-09T10:46:21.149Z",
-  "manifestFingerprint": "60916793f0748d26673d414702b5111c7ea345329d8f1bf7b86db45d6a25b36d",
+  "generatedAt": "2026-08-21T14:56:03.440Z",
+  "manifestFingerprint": "c11e783db3a6f34b90854be468e3269b4cd5e859247db2e6991aab038a79b143",
   "outputs": [
     {
       "contentSha256": "8681d43c99ae7c2ca0604d6ef3acf1051a579816a9fd55999505d05a575030ab",
