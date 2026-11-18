@@ -14,6 +14,7 @@ Sizes are rough token estimates (chars/4). For large notes, prefer
   - **meta.agent-conventions** - Agent conventions. How agents should work with this demo vault. (~224 tok)
   - **meta.hierarchy** - Hierarchy rule. Every dotted note needs its ancestor notes, enforced by check and index. (~262 tok)
   - **meta.indexing** - Index concurrency. One index writer per vault, enforced by a cross-process lock file. (~388 tok)
-  - **meta.search** - Search index. Local full-text + vector search over this vault. (~914 tok)
+  - **meta.search** - Search index. Local full-text + vector search over this vault. (~1138 tok)
+    - **meta.search.static-embedder** - Static embedder. Default Model2Vec embedder with no native runtime. (~524 tok)
   - **meta.testing** - Testing contract. Test-suite layers and isolation guarantees for the semantic-layer package. (~598 tok)
   - **meta.wikilinks** - Wikilink semantics. Validated wikilink grammar shared by check and index. (~430 tok)

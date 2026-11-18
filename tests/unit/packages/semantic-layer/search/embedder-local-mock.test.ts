@@ -184,7 +184,7 @@ describe("createEmbedder (local, mocked package)", () => {
       throw new Error("native binding missing");
     });
     await expect(createEmbedder({ provider: "local" })).rejects.toThrow(
-      /local embedding runtime .* is unavailable on this platform/,
+      /local embedding runtime .* unavailable on this platform/,
     );
   });
 

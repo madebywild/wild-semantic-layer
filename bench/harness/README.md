@@ -32,7 +32,20 @@ SEMANTIC_LAYER_MODEL_CACHE_DIR=.tmp/model-cache \
   node packages/semantic-layer/dist/bench/bench.js <dataset> eval-only  # reuse existing index
 ```
 
-Results are printed as one JSON line per mode. The local model is downloaded
+`BENCH_EMBEDDER=static` (the package default) or `BENCH_EMBEDDER=local`
+(nomic on ONNX, the harness default for comparability with older reports)
+picks the embedder. Non-`local` runs use their own vault directory,
+`.tmp/bench/<dataset>-<provider>/`, so both indexes can coexist. Set
+`SEMANTIC_LAYER_DISABLE_EMBEDDING_CACHE=1` to time a cold build; otherwise the
+shared embedding cache serves vectors from earlier runs.
+
+Do not rebuild the bundle while a run is in flight: `tsup` replaces the
+hashed chunk files the running process still imports lazily, and the run dies
+with `ERR_MODULE_NOT_FOUND` at its first late import.
+
+Results are printed as one JSON line per mode, preceded by a `build` line
+(notes, chunks, seconds) and an embedder line (load time, first query embed).
+Each mode line carries `maxRssMb`, the process's peak resident set so far. The local model is downloaded
 once into `.tmp/model-cache` (or the default `~/.cache/semantic-layer/models`).
 Each result retains aggregate `queryMs` for historical comparison and includes
 per-query `medianQueryMs` and `p95QueryMs` for latency reporting.

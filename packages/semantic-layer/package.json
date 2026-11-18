@@ -48,11 +48,17 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@huggingface/transformers": "4.2.0",
     "@types/node": "25.7.0",
     "tsup": "8.5.1"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "@huggingface/transformers": "4.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22.16.0"

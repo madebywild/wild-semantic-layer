@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_SEARCH_CONFIG } from "../../../../../packages/semantic-layer/src/config.js";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import { querySearch } from "../../../../../packages/semantic-layer/src/db/queries/search.js";
@@ -19,9 +20,18 @@ function validNote(
 }
 
 // Simulate the local embedding runtime being unavailable so the indexer falls back to FTS-only.
+// `static` is the default provider, so these tests opt into `local` explicitly.
 vi.mock("@huggingface/transformers", () => {
   throw new Error("local embedding runtime unavailable");
 });
+
+function localConfig(repoRoot: string, vaultDir: string) {
+  return createResolvedConfig({
+    repoRoot,
+    vaultDir,
+    search: { ...DEFAULT_SEARCH_CONFIG, embedding: { provider: "local" } },
+  });
+}
 
 describe("indexer FTS-only build (embedder unavailable)", () => {
   it("builds an FTS-only index: chunks are stored with null embeddings", async () => {
@@ -35,7 +45,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const config = localConfig(tv.dir, tv.vaultDir);
       const result = await buildIndex(config, {}, {});
 
       expect(result.mode).toBe("full");
@@ -63,7 +73,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const config = localConfig(tv.dir, tv.vaultDir);
       await buildIndex(config, {}, {});
 
       // The real query path against a genuinely FTS-only-built database: fts works and
@@ -95,7 +105,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const config = localConfig(tv.dir, tv.vaultDir);
       await expect(querySearch(config, { query: "anything", mode: "hybrid" })).rejects.toThrow(
         /FTS-only/,
       );
@@ -120,7 +130,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = createResolvedConfig({ repoRoot: tv.dir, vaultDir: tv.vaultDir });
+      const config = localConfig(tv.dir, tv.vaultDir);
       // Build WITH an embedder so the index has vectors, then simulate the embedder becoming
       // unavailable: the build must fail loudly instead of destroying the embeddings.
       const { createFakeEmbedder } = await import("../../../../helpers.js");

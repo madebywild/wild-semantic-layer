@@ -36,7 +36,7 @@ export const DEFAULT_WIKILINK_CONFIG: ResolvedWikilinkConfig = {
 export const DEFAULT_SEARCH_CONFIG: ResolvedSearchConfig = {
   enabled: true,
   chunking: { strategy: "heading", maxChunkChars: 2000 },
-  embedding: { provider: "local" },
+  embedding: { provider: "static" },
   defaultMode: "hybrid",
   defaultLimit: 10,
 };
@@ -156,7 +156,11 @@ function mergeSearchConfig(
   }
 
   const embedding = override.embedding ?? base.embedding;
-  if (embedding.provider !== "local" && embedding.provider !== "gemini") {
+  if (
+    embedding.provider !== "local" &&
+    embedding.provider !== "static" &&
+    embedding.provider !== "gemini"
+  ) {
     // "fastembed" was the pre-1.0 name for the local provider; call it out explicitly so old
     // config files fail with a rename hint instead of a bare enum error.
     const hint =
@@ -164,7 +168,7 @@ function mergeSearchConfig(
         ? ' ("fastembed" was renamed to "local")'
         : "";
     throw new Error(
-      `search.embedding.provider must be "local" or "gemini", got ${JSON.stringify(
+      `search.embedding.provider must be "local", "static", or "gemini", got ${JSON.stringify(
         (embedding as { provider: string }).provider,
       )}${hint}`,
     );

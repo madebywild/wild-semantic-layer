@@ -1,6 +1,6 @@
 import type { SqliteConnection } from "./connection.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const DEFAULT_EMBEDDING_DIMENSIONS = 384;
 export const FTS_INDEX_NAME = "chunks_fts";
 
@@ -61,8 +61,10 @@ CREATE TABLE IF NOT EXISTS links (
   UNIQUE(source_id, target_id, anchor)
 );
 CREATE INDEX IF NOT EXISTS links_target_idx ON links(target_id);
+-- Porter stemming lets "indexes"/"indexing" match "index"; measured +0.01 to +0.03 nDCG@10 on
+-- BEIR (bench/2026-11-18-static-embedder-poc.md). Changing the tokenizer needs a schema bump.
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-  search_text, content='chunks', content_rowid='rowid'
+  search_text, content='chunks', content_rowid='rowid', tokenize='porter unicode61'
 );
 CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
   INSERT INTO chunks_fts(rowid, search_text) VALUES (new.rowid, new.search_text);

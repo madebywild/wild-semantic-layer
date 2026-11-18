@@ -4,6 +4,8 @@ import {
   describeConfiguredEmbedder,
   type Embedder,
   LocalEmbedderUnavailableError,
+  pseudoRelevanceFeedback,
+  vectorSimilarityFloor,
 } from "../../search/embedder.js";
 import { candidateNoteIdsSinceSha, getHeadSha, isAncestorOfHead } from "../../search/git-diff.js";
 import type {
@@ -30,8 +32,6 @@ import { type CachedChunk, type CachedNote, clearSearchCache, getSearchCache } f
 
 export type SearchQueryDeps = { embedder?: Embedder; connection?: SqliteConnection };
 
-/** Cosine similarities below this did not meet the previous search relevance floor. */
-const DEFAULT_VECTOR_SIMILARITY = 0.4;
 /** Standard reciprocal-rank-fusion damping constant. */
 const RRF_K = 60;
 
@@ -171,6 +171,7 @@ export async function querySearch(
         throw new Error(`semantic-layer search: limit must be a positive integer, got ${limit}`);
       }
       const queryVector = await resolveQueryVector(config, meta, mode, opts.query, { embedder });
+      const embedderId = meta.embedding.kind === "embedder" ? meta.embedding.id : "";
 
       let hits: RawHit[];
       if (mode === "fts") {
@@ -178,9 +179,9 @@ export async function querySearch(
       } else if (!queryVector) {
         throw new Error(`semantic-layer search: ${mode} mode requires a query vector`);
       } else if (mode === "vector") {
-        hits = getVectorHits(conn, dbFile, opts, queryVector, limit);
+        hits = getVectorHits(conn, dbFile, opts, queryVector, limit, embedderId);
       } else {
-        hits = runHybridQuery(conn, dbFile, opts, queryVector, limit);
+        hits = runHybridQuery(conn, dbFile, opts, queryVector, limit, embedderId);
       }
       return { mode, hits, stale, rebuilt };
     };
@@ -335,14 +336,16 @@ function getVectorHits(
   opts: SearchQueryOptions,
   queryVector: number[],
   limit: number,
+  embedderId: string,
 ): RawHit[] {
+  const floor = vectorSimilarityFloor(embedderId);
   const cache = getSearchCache(conn, dbPath);
   const hits: RawHit[] = [];
   for (const chunk of cache.chunks.values()) {
     const note = cache.notes.get(chunk.noteId);
     if (!note || !matchesFilters(note, opts)) continue;
     const score = cosineSimilarity(queryVector, chunk.embedding);
-    if (score >= DEFAULT_VECTOR_SIMILARITY) hits.push(toCachedHit(chunk, note, score));
+    if (score >= floor) hits.push(toCachedHit(chunk, note, score));
   }
   return hits.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, limit);
 }
@@ -353,12 +356,24 @@ function runHybridQuery(
   opts: SearchQueryOptions,
   queryVector: number[],
   limit: number,
+  embedderId: string,
 ): RawHit[] {
   const candidates = candidateLimit(limit);
   const ftsRows = runFtsQuery(conn, opts, candidates);
-  const vectorRows = getVectorHits(conn, dbPath, opts, queryVector, candidates);
+  let vectorRows = getVectorHits(conn, dbPath, opts, queryVector, candidates, embedderId);
+  const feedback = pseudoRelevanceFeedback(embedderId);
+  if (feedback) {
+    const firstPass = fuseRrf([ftsRows, vectorRows]).slice(0, feedback.documents);
+    const expanded = expandQueryVector(conn, dbPath, queryVector, firstPass, feedback.weight);
+    if (expanded) vectorRows = getVectorHits(conn, dbPath, opts, expanded, candidates, embedderId);
+  }
+  return fuseRrf([ftsRows, vectorRows]).slice(0, limit);
+}
+
+/** Reciprocal rank fusion; copies hits so the input lists can be fused again. */
+function fuseRrf(lists: RawHit[][]): RawHit[] {
   const fused = new Map<string, RawHit>();
-  for (const rows of [ftsRows, vectorRows]) {
+  for (const rows of lists) {
     rows.forEach((row, rank) => {
       const contribution = 1 / (RRF_K + rank + 1);
       const existing = fused.get(row.id);
@@ -366,9 +381,29 @@ function runHybridQuery(
       else fused.set(row.id, { ...row, score: contribution });
     });
   }
-  return [...fused.values()]
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-    .slice(0, limit);
+  return [...fused.values()].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+}
+
+/** Rocchio step: normalize(query + weight * mean(feedback chunk vectors)). */
+function expandQueryVector(
+  conn: SqliteConnection,
+  dbPath: string,
+  queryVector: number[],
+  feedback: RawHit[],
+  weight: number,
+): number[] | undefined {
+  const cache = getSearchCache(conn, dbPath);
+  const vectors = feedback
+    .map((hit) => cache.chunks.get(hit.id)?.embedding)
+    .filter((vector): vector is Float32Array => vector?.length === queryVector.length);
+  if (vectors.length === 0) return undefined;
+  const expanded = queryVector.map((value, index) => {
+    let mean = 0;
+    for (const vector of vectors) mean += vector[index] as number;
+    return value + (weight * mean) / vectors.length;
+  });
+  const norm = Math.hypot(...expanded);
+  return norm === 0 ? undefined : expanded.map((value) => value / norm);
 }
 
 function matchesFilters(note: CachedNote, opts: SearchQueryOptions): boolean {

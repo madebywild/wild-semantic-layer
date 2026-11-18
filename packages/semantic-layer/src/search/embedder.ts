@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_GEMINI_API_KEY_ENV } from "../config.js";
 import type { SearchEmbeddingProviderConfig } from "../types.js";
+import { createStaticEmbedder, describeStaticEmbedder } from "./static-embedder.js";
 
 /**
  * Turns text into vectors. `embedDocuments`/`embedQuery` are separate (not one generic `embed`)
@@ -19,22 +20,49 @@ export type Embedder = {
 };
 
 export const LOCAL_EMBEDDER_UNAVAILABLE_MESSAGE =
-  "the local embedding runtime (@huggingface/transformers) is unavailable on this platform — " +
-  "install a build toolchain, use a glibc-based image, or set `search.embedding.provider: " +
-  "gemini` in your semantic-layer config.";
+  "the local embedding runtime (@huggingface/transformers) is not installed or unavailable on " +
+  "this platform. Install it next to @madebywild/semantic-layer on a glibc-based system, or set " +
+  "`search.embedding.provider` to `static` (the default, no native runtime) or `gemini`.";
 
-/** Thrown when the optional `@huggingface/transformers` dependency fails to load (e.g. on musl/Alpine). */
+/**
+ * Thrown when an embedder cannot load: the optional `@huggingface/transformers` peer is missing or
+ * fails on musl/Alpine, or the static model cannot be downloaded. The indexer then builds FTS-only.
+ */
 export class LocalEmbedderUnavailableError extends Error {
-  constructor(cause: unknown) {
-    super(LOCAL_EMBEDDER_UNAVAILABLE_MESSAGE);
+  constructor(cause: unknown, message: string = LOCAL_EMBEDDER_UNAVAILABLE_MESSAGE) {
+    super(message);
     this.name = "LocalEmbedderUnavailableError";
     this.cause = cause;
   }
 }
 
+/**
+ * Minimum cosine similarity a vector hit needs. 0.4 is the historical floor for the nomic model.
+ * Static (Model2Vec) cosines are not calibrated that way: unrelated text routinely scores 0.25-0.35
+ * while many relevant chunks score below 0.2, so any fixed floor drops real matches. Static vector
+ * search therefore ranks without a floor, only excluding anti-correlated chunks.
+ */
+export function vectorSimilarityFloor(embedderId: string): number {
+  return embedderId.startsWith("static:") ? 0 : 0.4;
+}
+
+/**
+ * Hybrid-mode pseudo-relevance feedback (Rocchio): after a first fused pass, the query vector is
+ * moved toward the mean of the top `documents` chunk vectors by `weight`, and the vector side is
+ * re-ranked. A static query costs microseconds to embed, so the second scan is the only cost.
+ * Chosen on BEIR SciFact and confirmed on held-out NFCorpus and ArguAna for the static embedder
+ * only, hence not applied to other embedders.
+ */
+export function pseudoRelevanceFeedback(
+  embedderId: string,
+): { documents: number; weight: number } | undefined {
+  return embedderId.startsWith("static:") ? { documents: 3, weight: 0.5 } : undefined;
+}
+
 /** Builds the configured embedder, lazily loading the local runtime only when that provider is active. */
 export async function createEmbedder(config: SearchEmbeddingProviderConfig): Promise<Embedder> {
   if (config.provider === "gemini") return createGeminiEmbedder(config);
+  if (config.provider === "static") return createStaticEmbedder(config);
   return createLocalEmbedder(config);
 }
 
@@ -53,6 +81,7 @@ export function describeConfiguredEmbedder(config: SearchEmbeddingProviderConfig
       dimensions: DEFAULT_GEMINI_DIMENSIONS,
     };
   }
+  if (config.provider === "static") return describeStaticEmbedder(config);
   const model = config.model ?? DEFAULT_LOCAL_MODEL;
   return {
     id: `local:${model}`,
