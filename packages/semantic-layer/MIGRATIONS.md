@@ -1,13 +1,13 @@
 # @madebywild/semantic-layer migrations
 
-## 3.0.0 (unreleased)
+## 3.0.0
 
 `3.0.0` replaces the ONNX embedding provider with a static embedder, adds a
 document-vector cache to `index`, and moves the hierarchy ancestor rule from
 `check` alone into both commands. It is a major version because the `local`
-provider and the `LocalEmbedderUnavailableError` export are removed. The
-version is not bumped yet: the release gates (`pnpm check` and
-`pnpm check:release`) belong to the release commit.
+provider and the `LocalEmbedderUnavailableError` export are removed. Configs
+that do not set an embedding provider keep working; the first `index` or
+`search` rebuilds once.
 
 ### The ONNX `local` provider is replaced by `static`
 

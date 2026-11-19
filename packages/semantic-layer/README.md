@@ -569,6 +569,16 @@ downloaded. Then `index` builds an FTS-only index instead of failing:
 `search --mode fts` keeps working, and `--mode vector`/`--mode hybrid` explain
 that embeddings are unavailable.
 
+## Migrating to 3.0
+
+Version `3.0.0` removes the ONNX `local` embedding provider and its
+`@huggingface/transformers` dependency; the static embedder is the only
+on-device option. Change `search.embedding.provider: local` to `static` (or
+delete the setting), drop any direct `@huggingface/transformers` install, and
+rename `LocalEmbedderUnavailableError` to `EmbedderUnavailableError` in library
+code. The next `index` rebuilds once for the new embedder and the Porter FTS
+schema. See [`MIGRATIONS.md`](MIGRATIONS.md) for details.
+
 ## Migrating to 2.0
 
 Version `2.0.0` replaces LadybugDB with the single-file SQLite index. Run
