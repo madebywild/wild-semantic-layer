@@ -36,7 +36,7 @@ export const DEFAULT_WIKILINK_CONFIG: ResolvedWikilinkConfig = {
 export const DEFAULT_SEARCH_CONFIG: ResolvedSearchConfig = {
   enabled: true,
   chunking: { strategy: "heading", maxChunkChars: 2000 },
-  embedding: { provider: "local" },
+  embedding: { provider: "static" },
   defaultMode: "hybrid",
   defaultLimit: 10,
 };
@@ -156,17 +156,17 @@ function mergeSearchConfig(
   }
 
   const embedding = override.embedding ?? base.embedding;
-  if (embedding.provider !== "local" && embedding.provider !== "gemini") {
-    // "fastembed" was the pre-1.0 name for the local provider; call it out explicitly so old
-    // config files fail with a rename hint instead of a bare enum error.
+  if (embedding.provider !== "static" && embedding.provider !== "gemini") {
+    // Old provider names fail with a migration hint instead of a bare enum error: "fastembed" was
+    // the pre-1.0 name of the ONNX provider, "local" its later name, and both were removed in
+    // favor of the static embedder.
+    const provider = (embedding as { provider: string }).provider;
     const hint =
-      (embedding as { provider: string }).provider === "fastembed"
-        ? ' ("fastembed" was renamed to "local")'
+      provider === "local" || provider === "fastembed"
+        ? ` ("${provider}" ran an ONNX model and was removed; use "static")`
         : "";
     throw new Error(
-      `search.embedding.provider must be "local" or "gemini", got ${JSON.stringify(
-        (embedding as { provider: string }).provider,
-      )}${hint}`,
+      `search.embedding.provider must be "static" or "gemini", got ${JSON.stringify(provider)}${hint}`,
     );
   }
 

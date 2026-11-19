@@ -5,7 +5,7 @@ desc: Test-suite layers and isolation guarantees for the semantic-layer package.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-08-29
+last_verified: 2026-11-19
 ttl_days: 180
 tags: [meta, testing]
 layer: demo
@@ -32,9 +32,11 @@ Four vitest projects cover the package, from fastest to most isolated:
   The container exercises Node's built-in SQLite and FTS5 on the supported
   Node 24 runtime. It also inspects the packed public declaration so internal
   SQLite connection types cannot leak into consumers that do not use indexing.
-  Packed consumers omit the optional model/ONNX dependency, proving the
-  FTS-only fallback without making install time depend on a model runtime;
-  vector behavior remains covered by source-level integration tests.
+  Packed consumers install no model runtime at all; the static embedder
+  downloads its model on first index, and the scenarios accept either a
+  vector or an FTS-only build so they pass with or without network access.
+  Vector behavior is covered by source-level integration tests, and the
+  offline FTS-only fallback by `fts-only.test.ts`.
 
 The package requires Node `>=22.16.0`: the built-in SQLite API is available in
 Node 22, but official Node 22.13 builds do not include FTS5. Node 22.16+ and

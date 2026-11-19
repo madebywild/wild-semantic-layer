@@ -15,11 +15,7 @@ import type { WikilinkEdge } from "../extract/wikilinks.js";
 import { extractVaultWikilinks } from "../extract/wikilinks.js";
 import { formatIndexErrors, validateVaultNotes } from "../frontmatter.js";
 import { withIndexLock } from "../index-lock.js";
-import {
-  createEmbedder,
-  type Embedder,
-  LocalEmbedderUnavailableError,
-} from "../search/embedder.js";
+import { createEmbedder, type Embedder, EmbedderUnavailableError } from "../search/embedder.js";
 import { embeddingCacheFileForConfig, withEmbeddingCache } from "../search/embedding-cache.js";
 import { getHeadSha } from "../search/git-diff.js";
 import type { Note, ResolvedConfig } from "../types.js";
@@ -163,10 +159,10 @@ async function resolveEmbedder(
       ftsOnly: false,
     };
   } catch (error) {
-    if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
+    if (!(error instanceof EmbedderUnavailableError)) throw error;
     if (meta?.embedding.kind === "embedder") {
       throw new Error(
-        `semantic-layer index: ${error.message} The existing index has embeddings built with "${meta.embedding.id}"; re-run on a platform with a working embedder.`,
+        `semantic-layer index: ${error.message} The existing index has embeddings built with "${meta.embedding.id}"; re-run once the embedder is available again.`,
       );
     }
     console.error(`semantic-layer index: ${error.message} Building an FTS-only index.`);

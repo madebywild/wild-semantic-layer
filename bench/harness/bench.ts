@@ -2,10 +2,10 @@
  * BEIR benchmark harness for semantic-layer's search index.
  *
  * Converts a BEIR dataset (corpus.jsonl / queries.jsonl / qrels/test.tsv) into a semantic-layer
- * vault (one note per document), builds the real SQLite index with a local nomic embedder, then
+ * vault (one note per document), builds the real SQLite index with the static embedder, then
  * scores fts / vector / hybrid modes with nDCG@10, Recall@100, MRR@10 against the official qrels.
  *
- * Usage: node out/bench.mjs <dataset-name>   (expects .tmp/bench/datasets/<name>/ on disk)
+ * Usage: node out/bench.mjs <dataset-name> [eval-only]   (expects .tmp/bench/datasets/<name>/)
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -42,6 +42,15 @@ function readQrels(path: string): Map<string, Map<string, number>> {
   return qrels;
 }
 
+/**
+ * Corpus prose is not vault markup: ArguAna cites sources as `[[...]]`, which the indexer (since
+ * wikilink validation and indexing were unified) rejects as dangling links. Breaking the opening
+ * bracket pair keeps the text for FTS and embeddings while making it inert.
+ */
+function escapeWikilinks(text: string): string {
+  return text.replaceAll("[[", "[ [");
+}
+
 /** One note per corpus document; note id (the filename) is the BEIR corpus id, verbatim. */
 function ensureVault(dataset: string): string {
   const dsDir = join(BENCH_ROOT, dataset);
@@ -52,8 +61,8 @@ function ensureVault(dataset: string): string {
   const corpus = readJsonl(join(DATASETS_DIR, dataset, "corpus.jsonl"));
   for (const doc of corpus) {
     const id = String(doc._id);
-    const title = String(doc.title ?? "").trim() || id;
-    const text = String(doc.text ?? "").trim();
+    const title = escapeWikilinks(String(doc.title ?? "").trim()) || id;
+    const text = escapeWikilinks(String(doc.text ?? "").trim());
     const desc = (text || title).replace(/\s+/g, " ").slice(0, 160) || "document";
     const note = [
       "---",
@@ -75,7 +84,7 @@ function ensureVault(dataset: string): string {
   }
   writeFileSync(
     join(dsDir, "semantic-layer.config.yml"),
-    ["vault: vault", "root: .", "search:", "  embedding:", "    provider: local", ""].join("\n"),
+    ["vault: vault", "root: .", "search:", "  embedding:", "    provider: static", ""].join("\n"),
   );
   // An empty repo per dataset: the parent repo's HEAD would make every generated note look like
   // an uncommitted change, triggering the query-time staleness path (and its git spawns) per query.
@@ -139,13 +148,30 @@ async function main(): Promise<void> {
     const t0 = performance.now();
     const build = await buildIndex(config, { full: true });
     const indexSeconds = ((performance.now() - t0) / 1000).toFixed(1);
+    console.log(
+      JSON.stringify({
+        dataset,
+        build: { notes: build.noteCount, chunks: build.chunkCount, seconds: Number(indexSeconds) },
+      }),
+    );
     console.error(
       `index: ${build.noteCount} notes, ${build.chunkCount} chunks in ${indexSeconds}s (${(
         build.noteCount / Number(indexSeconds)
       ).toFixed(1)} notes/s)`,
     );
   }
+  const embedStart = performance.now();
   const embedder = await createEmbedder(config.search.embedding);
+  const loadMs = performance.now() - embedStart;
+  const probeStart = performance.now();
+  await embedder.embedQuery("warm up the query embedder");
+  console.log(
+    JSON.stringify({
+      dataset,
+      embedderLoadMs: Number(loadMs.toFixed(1)),
+      firstQueryEmbedMs: Number((performance.now() - probeStart).toFixed(2)),
+    }),
+  );
 
   const queryIds = [...qrels.keys()].filter((qid) => queries.has(qid));
   for (const mode of ["fts", "vector", "hybrid"] satisfies SearchMode[]) {
@@ -184,6 +210,8 @@ async function main(): Promise<void> {
         queryMs: Number(((seconds * 1000) / queryIds.length).toFixed(1)),
         medianQueryMs: Number(percentile(querySamplesMs, 0.5).toFixed(1)),
         p95QueryMs: Number(percentile(querySamplesMs, 0.95).toFixed(1)),
+        // Peak resident set of the whole process so far (index build + every mode up to this one).
+        maxRssMb: Math.round(process.resourceUsage().maxRSS / 1024),
       }),
     );
   }

@@ -1,0 +1,21 @@
+schema_version: 1
+id: 20261118222647-static-embeddings-can-replace-onnx-for-vault-sea
+status: promoted
+source: web:developer.chrome.com/blog/mwg-technical-deep-dive
+title: Static embeddings can replace ONNX for vault search
+summary: "Chrome's Modern Web Guidance replaced a native ONNX/LanceDB stack with
+  pre-baked Int8 vectors, a static word-vector query embedder and BM25 fusion:
+  7.1 MB package, 30 us query embed, Hit@K equal or better. Lessons: static
+  averaging fails on long documents, hard cosine cutoffs drop valid results,
+  measure with real queries."
+evidence:
+  - "Gen 3: 7.1 MB tgz, 185 ms cold search, 95.4% Hit@K vs 94.7% (TF.js MiniLM
+    tuned)"
+related_notes:
+  - meta.search
+created_at: 2026-11-18T22:26:47.911Z
+updated_at: 2026-11-18T22:26:57.393Z
+promoted_at: 2026-11-18T22:26:57.393Z
+promoted_notes:
+  - meta.search
+  - meta.search.static-embedder

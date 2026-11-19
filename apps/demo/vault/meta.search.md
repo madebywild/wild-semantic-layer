@@ -5,7 +5,7 @@ desc: Local full-text + vector search over this vault.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-09-05
+last_verified: 2026-11-19
 ttl_days: 180
 tags: [meta, search]
 layer: demo
@@ -19,6 +19,12 @@ code_refs:
   - file: packages/semantic-layer/src/search/git-diff.ts
     symbol: getGitCommonDir
     kind: function
+  - file: packages/semantic-layer/src/search/embedder.ts
+    symbol: vectorSimilarityFloor
+    kind: function
+  - file: packages/semantic-layer/src/db/schema.ts
+    symbol: SCHEMA_VERSION
+    kind: const
 ---
 
 # Search index
@@ -32,19 +38,26 @@ is gitignored. SQLite may create transient `vault.sqlite-wal` and
 index state. `search-index --full` regenerates the database from scratch, and
 a plain `search-index` rebuilds incrementally.
 
-The default local embedder runs `nomic-ai/nomic-embed-text-v1.5` (truncated to
-512 dimensions) via `@huggingface/transformers` on `onnxruntime-node`, which
-has no musl/Alpine build, so `search-index` degrades to an FTS-only index
-there instead of failing. See [[meta.testing]] for how the containerized
-suites cover this.
+Vectors come from the static Model2Vec embedder described in
+[[meta.search.static-embedder]]: a lookup table, no neural network and no
+native runtime. The hosted `gemini` provider is the only alternative; the ONNX
+`local` provider was removed in 3.0.0 and its name now fails config loading
+with a hint. When the static model cannot load (a first run on an offline
+machine) `search-index` degrades to an FTS-only index instead of failing. See
+[[meta.testing]] for how the suites cover this.
 
 The index uses Node's built-in `node:sqlite` and SQLite FTS5. Search keeps a
 per-process cache of vectors and filter metadata, refreshing changed notes
 after successful writes and reloading when SQLite's data version changes.
 Embeddings are Float32 BLOBs and vector retrieval is exact cosine similarity;
-there is no native database module or vector extension to install.
+there is no native database module or vector extension to install. The vector
+side keeps hits above a per-embedder cosine floor: none for the static model,
+whose cosines are not calibrated for one, and 0.4 for Gemini.
 
-FTS accepts ordinary user text rather than raw FTS5 syntax. It safely quotes
+The FTS5 table uses the `porter unicode61` tokenizer, so inflected forms match
+("indexes" finds "index"); the tokenizer change bumped the index schema to
+version 6, which forces one full rebuild. FTS accepts ordinary user text rather
+than raw FTS5 syntax. It safely quotes
 Unicode tokens, deduplicates them, removes a conservative set of common English
 function words, and OR-composes the remaining terms. If filtering removes every
 term, it falls back to the safe deduplicated tokens so short stopword-only
@@ -76,7 +89,10 @@ later removal. Existing `vault.lbug*` artifacts are deliberately left untouched
 during migration; after a successful SQLite build, the CLI reports that they
 are derived and safe to remove.
 
-`bench/2026-08-19-beir-sqlite-search.md` records the fresh SQLite ArguAna run:
+`bench/2026-11-18-static-embedder-poc.md` compares the static embedder with
+the ONNX nomic model it replaced on BEIR SciFact, NFCorpus and ArguAna: hybrid nDCG@10 within
+±0.005 on each, cold ArguAna builds about 190x faster and peak memory ten times
+lower. `bench/2026-08-19-beir-sqlite-search.md` records the fresh SQLite ArguAna run:
 17,802 chunks, FTS/vector/hybrid nDCG@10 of 0.3342/0.3442/0.3691, and median
 latencies of 52.9/83.8/139.7 ms. The attempted 57,638-document FiQA run was
 stopped after an overnight host suspension invalidated its build timing before

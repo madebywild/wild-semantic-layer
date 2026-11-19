@@ -137,7 +137,7 @@ search:
     strategy: heading
     maxChunkChars: 2000
   embedding:
-    provider: local
+    provider: static
   defaultMode: hybrid
   defaultLimit: 10
 ```
@@ -159,7 +159,7 @@ files are `semantic-layer.config.yml`, `semantic-layer.config.yaml`, and
 | `search.enabled` | `true` | Whether `search`/`graph` and the SQLite index build are usable for this vault. When `false`, `index` writes only the markdown/JSON sidecars and creates no database. |
 | `search.chunking.strategy` | `heading` | `heading` (one chunk per section) or `whole-note`. |
 | `search.chunking.maxChunkChars` | `2000` | Character budget before a section is split further. |
-| `search.embedding.provider` | `local` | `local` (on-device) or `gemini` (hosted). See [Search](#search). |
+| `search.embedding.provider` | `static` | `static` (on-device lookup table, no native runtime) or `gemini` (hosted). See [Embedding providers](#embedding-providers). |
 | `search.defaultMode` | `hybrid` | Default `search` mode: `fts`, `vector`, or `hybrid`. |
 | `search.defaultLimit` | `10` | Default result count for `search`. |
 
@@ -494,21 +494,31 @@ Graph output prints one JSON object per line plus a summary line; pass
 
 ### Embedding providers
 
-By default, vectors come from a local model run with
-[transformers.js](https://huggingface.co/docs/transformers.js)
-(`nomic-ai/nomic-embed-text-v1.5`, Matryoshka-truncated to 512 dimensions) —
-free, and no network calls after the first run, which downloads the quantized
-model (~130 MB) to `~/.cache/semantic-layer/models` (override with the
-`SEMANTIC_LAYER_MODEL_CACHE_DIR` env var or `search.embedding.cacheDir`).
+Vectors come from a static
+[Model2Vec](https://github.com/MinishLab/model2vec) embedder
+(`minishlab/potion-retrieval-32M`, 512 dimensions): a text's vector is the
+normalized mean of per-token vectors from a lookup table, so nothing neural
+runs at index or query time and there is no native dependency. The first run
+downloads the pinned, SHA-256-verified model files once, quantizes the table to
+Int8 and keeps about 33 MB in `~/.cache/semantic-layer/models` (override with
+the `SEMANTIC_LAYER_MODEL_CACHE_DIR` env var or `search.embedding.cacheDir`).
+Later loads take about 0.1 s and need no network.
 
 ```yaml
 search:
   embedding:
-    provider: local
+    provider: static
 ```
 
-Set `provider: gemini` to use Google's hosted embeddings instead — useful when
-local embeddings aren't an option (see the Alpine/musl note below):
+Static vectors are weaker on their own than a transformer's, so search is
+tuned for the default `hybrid` mode: FTS uses Porter stemming, and hybrid
+search re-ranks the vector side once with pseudo-relevance feedback from the
+top fused hits. On BEIR SciFact, NFCorpus and ArguAna its hybrid nDCG@10 is
+within ±0.005 of the ONNX model it replaced, while a cold ArguAna build is
+about 190x faster and needs a tenth of the memory. `--mode vector` alone is
+weaker than that ONNX model was (see `bench/2026-11-18-static-embedder-poc.md`).
+
+Set `provider: gemini` to use Google's hosted embeddings instead:
 
 ```yaml
 search:
@@ -552,12 +562,22 @@ apply this one rule and report it in the same words
 The package requires Node `>=22.16.0`. This version is deliberate: official
 Node 22.13 builds expose `node:sqlite` but do not include FTS5; Node 22.16+
 and Node 24 do. There is no native database dependency and SQLite itself works
-on supported Node platforms. The optional local embedding runtime
-(`@huggingface/transformers`, on `onnxruntime-node`) may still be unavailable
-on musl/Alpine. In that case `index` builds an FTS-only index instead of
-failing: `search --mode fts` keeps working, and `--mode vector`/`--mode hybrid`
-explain that embeddings are unavailable. Use a compatible local runtime or
-switch `search.embedding.provider` to `gemini` for vector search.
+on supported Node platforms, and so does the static embedder: the package has
+no native dependency at all. The one case without
+vectors is a machine that has never been online, so the static model was never
+downloaded. Then `index` builds an FTS-only index instead of failing:
+`search --mode fts` keeps working, and `--mode vector`/`--mode hybrid` explain
+that embeddings are unavailable.
+
+## Migrating to 3.0
+
+Version `3.0.0` removes the ONNX `local` embedding provider and its
+`@huggingface/transformers` dependency; the static embedder is the only
+on-device option. Change `search.embedding.provider: local` to `static` (or
+delete the setting), drop any direct `@huggingface/transformers` install, and
+rename `LocalEmbedderUnavailableError` to `EmbedderUnavailableError` in library
+code. The next `index` rebuilds once for the new embedder and the Porter FTS
+schema. See [`MIGRATIONS.md`](MIGRATIONS.md) for details.
 
 ## Migrating to 2.0
 
@@ -638,6 +658,6 @@ Exports:
 - `runRefinementReject`
 - `runSearch`
 - `runGraph`
-- `LocalEmbedderUnavailableError`
+- `EmbedderUnavailableError`
 - `IndexLockError`, `indexLockFileForConfig`
 - TypeScript types for config, notes, schemas, search/graph results, and check results

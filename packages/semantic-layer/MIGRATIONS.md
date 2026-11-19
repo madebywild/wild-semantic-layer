@@ -1,12 +1,40 @@
 # @madebywild/semantic-layer migrations
 
-## 2.2.0 (unreleased)
+## 3.0.0
 
-`2.2.0` adds a document-vector cache to `index`, and moves the hierarchy
-ancestor rule from `check` alone into both commands. No exported API is removed
-or renamed, and no config or vault change is required. The version is not bumped yet: the
-release gates (`pnpm check` and `pnpm check:release`) belong to the release
-commit.
+`3.0.0` replaces the ONNX embedding provider with a static embedder, adds a
+document-vector cache to `index`, and moves the hierarchy ancestor rule from
+`check` alone into both commands. It is a major version because the `local`
+provider and the `LocalEmbedderUnavailableError` export are removed. Configs
+that do not set an embedding provider keep working; the first `index` or
+`search` rebuilds once.
+
+### The ONNX `local` provider is replaced by `static`
+
+`search.embedding.provider` accepts `static` (the default) or `gemini`. The
+static provider is a Model2Vec lookup table (`minishlab/potion-retrieval-32M`,
+512 dimensions) with an in-tree tokenizer: no neural network runs and nothing
+native is installed. `@huggingface/transformers`, and with it
+`onnxruntime-node` (about 650 MB installed), is no longer a dependency in any
+form, and `nomic-ai/nomic-embed-text-v1.5` is no longer available. FTS5 now
+stems with Porter, which bumps the index schema to version 6.
+
+Consumer actions:
+
+- Configs that set `provider: local` (or the pre-1.0 `fastembed`) now fail to
+  load with a hint. Change them to `provider: static`, or delete the
+  `embedding` block to use the default.
+- Remove any direct `@huggingface/transformers` install that existed only for
+  this package.
+- Replace `LocalEmbedderUnavailableError` with `EmbedderUnavailableError`. It is
+  thrown when the static model cannot be loaded, for example on the first run
+  of an offline machine, and the indexer still falls back to an FTS-only index.
+- Nothing else: the next `index` or `search` sees the new embedder and schema
+  and rebuilds once. The first build downloads about 130 MB, keeps 33 MB in
+  the model cache, and works offline afterwards.
+- Expect weaker `--mode vector` ranking than with the nomic model; the default
+  `hybrid` mode is unchanged within measurement noise
+  (`bench/2026-11-18-static-embedder-poc.md`).
 
 ### Vectors are reused across worktrees
 

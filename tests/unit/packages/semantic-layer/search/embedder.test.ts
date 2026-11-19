@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEmbedder } from "../../../../../packages/semantic-layer/src/search/embedder.js";
 
-const REAL_LOCAL_EMBEDDER_ENV = "SEMANTIC_LAYER_TEST_REAL_LOCAL_EMBEDDER";
+const REAL_STATIC_EMBEDDER_ENV = "SEMANTIC_LAYER_TEST_REAL_STATIC_EMBEDDER";
 
 function stubFetchOnce(response: { ok: boolean; status?: number; body: unknown }) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -147,20 +147,21 @@ describe("createEmbedder (gemini)", () => {
   });
 });
 
-describe("createEmbedder (local)", () => {
-  it("throws a clear, actionable error for an unrecognized model without touching the network", async () => {
-    // The model check runs before the runtime is loaded, so this fails the same way on platforms
-    // where the local runtime itself is unavailable (e.g. Alpine/musl).
-    await expect(createEmbedder({ provider: "local", model: "not-a-real-model" })).rejects.toThrow(
-      /Unknown local embedding model "not-a-real-model"/,
+describe("createEmbedder (static)", () => {
+  it("rejects an unpinned model before touching the network", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createEmbedder({ provider: "static", model: "not-a-real-model" })).rejects.toThrow(
+      /Unknown static embedding model "not-a-real-model"/,
     );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.skipIf(!process.env[REAL_LOCAL_EMBEDDER_ENV])(
-    "loads the real local model and embeds text (opt-in, network + ONNX required)",
+  it.skipIf(!process.env[REAL_STATIC_EMBEDDER_ENV])(
+    "downloads the real static model and embeds text (opt-in, network required)",
     async () => {
-      const embedder = await createEmbedder({ provider: "local" });
-      expect(embedder.id).toBe("local:nomic-ai/nomic-embed-text-v1.5");
+      const embedder = await createEmbedder({ provider: "static" });
+      expect(embedder.id).toBe("static:minishlab/potion-retrieval-32M");
       expect(embedder.dimensions).toBe(512);
 
       const [vector] = await embedder.embedDocuments(["hello world"]);
@@ -168,14 +169,10 @@ describe("createEmbedder (local)", () => {
       expect(vector).toHaveLength(512);
       // The indexer receives plain arrays before encoding embeddings as Float32 BLOBs.
       expect(Array.isArray(vector)).toBe(true);
-      // Matryoshka truncation must renormalize: vector search assumes unit-length vectors.
+      // Vector search assumes unit-length vectors.
       expect(Math.hypot(...vector)).toBeCloseTo(1, 5);
 
-      const queryVector = await embedder.embedQuery("hello");
-      expect(queryVector).toHaveLength(512);
-      expect(Array.isArray(queryVector)).toBe(true);
-
-      await embedder.close?.();
+      expect(await embedder.embedQuery("hello world")).toEqual(vector);
     },
     120_000,
   );

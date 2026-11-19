@@ -5,7 +5,7 @@ desc: Every dotted note needs its ancestor notes, enforced by check and index.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-09-05
+last_verified: 2026-11-19
 ttl_days: 180
 tags: [meta, hierarchy, validation]
 layer: demo
@@ -34,7 +34,7 @@ report it in the same words, the same way they share the link grammar in
 ```
 
 `index` applies the rule before it resolves code references, before it embeds,
-and before it opens a write transaction. Until version 2.2.0 only `check` held
+and before it opens a write transaction. Until version 3.0.0 only `check` held
 the rule, so a missing ancestor reached SQLite and stopped the build with
 `FOREIGN KEY constraint failed`, which names neither the note nor the missing
 parent. A search-disabled vault gets the same error, because it writes

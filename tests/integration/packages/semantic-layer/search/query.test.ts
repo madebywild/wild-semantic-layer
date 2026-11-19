@@ -113,6 +113,30 @@ describe("querySearch — modes", () => {
     }
   });
 
+  it("fts mode matches inflected forms through Porter stemming", async () => {
+    const { tv, config } = setupVault({
+      "vault/alpha.md": noteMarkdown({
+        id: "alpha",
+        body: "## Section\n\nThe indexer rebuilds indexes nightly.\n",
+      }),
+      "vault/beta.md": noteMarkdown({ id: "beta", body: "## Section\n\nThe gadgets are here.\n" }),
+    });
+    try {
+      const embedder = createFakeEmbedder();
+      await buildIndex(config, {}, { embedder });
+
+      const result = await querySearch(
+        config,
+        { query: "rebuilding index", mode: "fts" },
+        { embedder },
+      );
+      expect(result.hits.map((hit) => hit.noteId)).toContain("alpha");
+      expect(result.hits.map((hit) => hit.noteId)).not.toContain("beta");
+    } finally {
+      await cleanup(tv);
+    }
+  });
+
   it("treats ordinary punctuation and unmatched quotes as safe user text", async () => {
     const { tv, config } = setupVault({
       "vault/alpha.md": noteMarkdown({
@@ -276,6 +300,49 @@ describe("querySearch — modes", () => {
     } finally {
       await cleanup(tv);
     }
+  });
+
+  it("static embedders re-rank hybrid vectors with pseudo-relevance feedback", async () => {
+    // Query vector [0, 1]. gamma is a hair closer to the query than beta, so plain hybrid ranks
+    // gamma first. The FTS-only hit alpha ([1, 0]) joins the top-3 feedback set, which pulls the
+    // expanded query toward +x, past beta ([0.7, 0.71]) and away from gamma ([-0.69, 0.72]).
+    const files = {
+      "vault/alpha.md": noteMarkdown({ id: "alpha", body: "## Section\n\nThe widgets.\n" }),
+      "vault/beta.md": noteMarkdown({ id: "beta", body: "## Section\n\nBETA_MARKER\n" }),
+      "vault/gamma.md": noteMarkdown({ id: "gamma", body: "## Section\n\nGAMMA_MARKER\n" }),
+    };
+    const vectorFor = (text: string): number[] => {
+      if (text.includes("widgets")) return [1, 0];
+      if (text.includes("BETA_MARKER")) return [0.7, 0.71];
+      if (text.includes("GAMMA_MARKER")) return [-0.69, 0.72];
+      return [0, -1];
+    };
+    const rank = async (id: string): Promise<string[]> => {
+      const { tv, config } = setupVault(files);
+      try {
+        const embedder = {
+          id,
+          dimensions: 2,
+          embedDocuments: async (texts: string[]) => texts.map(vectorFor),
+          embedQuery: async () => [0, 1],
+        };
+        await buildIndex(config, {}, { embedder });
+        const result = await querySearch(
+          config,
+          { query: "widgets", mode: "hybrid" },
+          { embedder },
+        );
+        return result.hits.map((hit) => hit.noteId);
+      } finally {
+        await cleanup(tv);
+      }
+    };
+
+    const plain = await rank("fake:prf");
+    expect(plain.indexOf("gamma")).toBeLessThan(plain.indexOf("beta"));
+    const withFeedback = await rank("static:test");
+    expect(withFeedback[0]).toBe("alpha");
+    expect(withFeedback.indexOf("beta")).toBeLessThan(withFeedback.indexOf("gamma"));
   });
 
   it("defaults to the config's defaultMode when mode is not specified", async () => {

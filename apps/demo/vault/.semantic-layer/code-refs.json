@@ -115,6 +115,50 @@
     {
       "note_id": "meta.search",
       "ref": {
+        "file": "packages/semantic-layer/src/db/schema.ts",
+        "symbol": "SCHEMA_VERSION",
+        "kind": "const"
+      },
+      "kind": "const",
+      "namespaces": [
+        "value"
+      ],
+      "line": 3,
+      "column": 14,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/db/schema.ts",
+          "kind": "const",
+          "line": 3,
+          "column": 14
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedder.ts",
+        "symbol": "vectorSimilarityFloor",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 38,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedder.ts",
+          "kind": "function",
+          "line": 38,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search",
+      "ref": {
         "file": "packages/semantic-layer/src/search/embedding-cache.ts",
         "symbol": "embeddingCacheFileForConfig",
         "kind": "function"
@@ -174,6 +218,94 @@
           "file": "packages/semantic-layer/src/search/git-diff.ts",
           "kind": "function",
           "line": 14,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search.static-embedder",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/embedder.ts",
+        "symbol": "pseudoRelevanceFeedback",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 49,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/embedder.ts",
+          "kind": "function",
+          "line": 49,
+          "column": 17
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search.static-embedder",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/static-embedder.ts",
+        "symbol": "createStaticEmbedder",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 71,
+      "column": 23,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/static-embedder.ts",
+          "kind": "function",
+          "line": 71,
+          "column": 23
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search.static-embedder",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/static-embedder.ts",
+        "symbol": "STATIC_MODELS",
+        "kind": "const"
+      },
+      "kind": "const",
+      "namespaces": [
+        "value"
+      ],
+      "line": 27,
+      "column": 14,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/static-embedder.ts",
+          "kind": "const",
+          "line": 27,
+          "column": 14
+        }
+      ]
+    },
+    {
+      "note_id": "meta.search.static-embedder",
+      "ref": {
+        "file": "packages/semantic-layer/src/search/wordpiece.ts",
+        "symbol": "loadWordPieceTokenizer",
+        "kind": "function"
+      },
+      "kind": "function",
+      "namespaces": [
+        "value"
+      ],
+      "line": 35,
+      "column": 17,
+      "declarations": [
+        {
+          "file": "packages/semantic-layer/src/search/wordpiece.ts",
+          "kind": "function",
+          "line": 35,
           "column": 17
         }
       ]

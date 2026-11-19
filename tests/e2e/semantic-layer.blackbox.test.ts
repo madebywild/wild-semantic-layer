@@ -232,7 +232,8 @@ describe("semantic-layer CLI blackbox", () => {
     // Flag plumbing: full rebuild, the search-index alias, filters, --version, and default check.
     const fullRebuild = await cli(workspace, ["index", "--full"]);
     expect(fullRebuild.exitCode, fullRebuild.output).toBe(0);
-    // The container has no working local embedding runtime, so the suffix may be " (fts-only)".
+    // Without network access the static model cannot be downloaded, so the suffix may be
+    // " (fts-only)"; with it, the build has vectors.
     expect(fullRebuild.output).toMatch(/full( \(fts-only\))? rebuild/);
 
     const alias = await cli(workspace, ["search-index"]);
@@ -473,8 +474,8 @@ describe("semantic-layer CLI blackbox", () => {
   });
 
   async function install(workspace: ScenarioWorkspace) {
-    // These packed-package scenarios exercise the documented FTS-only fallback. Keep the
-    // optional model/ONNX download out of the blackbox install; vector paths run in integration.
+    // The package has no optional or native dependencies left; `--omit=optional` keeps the
+    // install minimal should one reappear. Vector paths run in integration.
     const installResult = await run(workspace, [
       "npm",
       "install",
