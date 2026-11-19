@@ -1,7 +1,7 @@
 /**
  * Dependency-free BERT WordPiece tokenizer: the `BertNormalizer` + `BertPreTokenizer` + `WordPiece`
- * pipeline of a Hugging Face `tokenizer.json`, reimplemented so the static embedder needs neither
- * `@huggingface/transformers` nor `@huggingface/tokenizers` at runtime. Only the pieces the
+ * pipeline of a Hugging Face `tokenizer.json`, reimplemented so the static embedder has no
+ * tokenizer dependency at runtime. Only the pieces the
  * supported static models use are implemented; anything else is rejected at load time instead of
  * silently tokenizing differently from the reference implementation.
  */

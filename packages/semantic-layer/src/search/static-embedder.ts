@@ -3,14 +3,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SearchEmbeddingProviderConfig } from "../types.js";
-import { type Embedder, LocalEmbedderUnavailableError } from "./embedder.js";
+import { type Embedder, EmbedderUnavailableError } from "./embedder.js";
 import { loadWordPieceTokenizer, type WordPieceTokenizer } from "./wordpiece.js";
 
 /**
  * Static (Model2Vec) embedder: a text's vector is the normalized mean of per-token vectors from a
- * lookup table. No neural network runs at index or query time, so there is no ONNX runtime, no
- * native binary, and nothing that breaks on musl/Alpine. Retrieval quality comes from pairing it
- * with FTS in hybrid mode; see `bench/` for the measured comparison with the ONNX embedder.
+ * lookup table. No neural network runs at index or query time, so there is no native binary and
+ * nothing that breaks on musl/Alpine. Retrieval quality comes from pairing it with FTS in hybrid
+ * mode; `bench/2026-11-18-static-embedder-poc.md` compares it with the ONNX model it replaced.
  *
  * Model files are downloaded once, at a pinned revision, and verified by SHA-256. The Float32
  * table is then quantized to Int8 once and kept as `embeddings.i8` (a quarter of the size); the
@@ -96,8 +96,8 @@ export async function loadStaticEmbedder(
     }
     return assembleStaticEmbedder(id, spec.dimensions, tokenizerJson, table);
   } catch (cause) {
-    // Offline first run: degrade to an FTS-only index exactly like an unloadable ONNX runtime.
-    throw new LocalEmbedderUnavailableError(
+    // Offline first run: the indexer degrades to an FTS-only index instead of failing.
+    throw new EmbedderUnavailableError(
       cause,
       `the static embedding model "${model}" could not be loaded from or downloaded to ${dir}; ` +
         "connect once to fetch it, or set `search.embedding.cacheDir` to a directory that " +

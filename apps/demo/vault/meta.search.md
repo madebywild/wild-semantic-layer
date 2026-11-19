@@ -5,7 +5,7 @@ desc: Local full-text + vector search over this vault.
 status: active
 owner: tom@wild.as
 audience: [agents, eng]
-last_verified: 2026-11-18
+last_verified: 2026-11-19
 ttl_days: 180
 tags: [meta, search]
 layer: demo
@@ -38,23 +38,21 @@ is gitignored. SQLite may create transient `vault.sqlite-wal` and
 index state. `search-index --full` regenerates the database from scratch, and
 a plain `search-index` rebuilds incrementally.
 
-The default embedder is the static Model2Vec provider described in
+Vectors come from the static Model2Vec embedder described in
 [[meta.search.static-embedder]]: a lookup table, no neural network and no
-native runtime. `provider: local` still runs `nomic-ai/nomic-embed-text-v1.5`
-(truncated to 512 dimensions) via `@huggingface/transformers` on
-`onnxruntime-node`, now an optional peer dependency that consumers install
-themselves. When an embedder cannot load (the peer is missing, it has no
-musl/Alpine build, or the static model cannot be downloaded) `search-index`
-degrades to an FTS-only index instead of failing. See [[meta.testing]] for how
-the containerized suites cover this.
+native runtime. The hosted `gemini` provider is the only alternative; the ONNX
+`local` provider was removed in 3.0.0 and its name now fails config loading
+with a hint. When the static model cannot load (a first run on an offline
+machine) `search-index` degrades to an FTS-only index instead of failing. See
+[[meta.testing]] for how the suites cover this.
 
 The index uses Node's built-in `node:sqlite` and SQLite FTS5. Search keeps a
 per-process cache of vectors and filter metadata, refreshing changed notes
 after successful writes and reloading when SQLite's data version changes.
 Embeddings are Float32 BLOBs and vector retrieval is exact cosine similarity;
 there is no native database module or vector extension to install. The vector
-side keeps hits above a per-embedder cosine floor: 0.4 for the nomic model, and
-none for the static model, whose cosines are not calibrated that way.
+side keeps hits above a per-embedder cosine floor: none for the static model,
+whose cosines are not calibrated for one, and 0.4 for Gemini.
 
 The FTS5 table uses the `porter unicode61` tokenizer, so inflected forms match
 ("indexes" finds "index"); the tokenizer change bumped the index schema to
@@ -91,8 +89,8 @@ later removal. Existing `vault.lbug*` artifacts are deliberately left untouched
 during migration; after a successful SQLite build, the CLI reports that they
 are derived and safe to remove.
 
-`bench/2026-11-18-static-embedder-poc.md` compares the static default with the
-nomic model on BEIR SciFact, NFCorpus and ArguAna: hybrid nDCG@10 within
+`bench/2026-11-18-static-embedder-poc.md` compares the static embedder with
+the ONNX nomic model it replaced on BEIR SciFact, NFCorpus and ArguAna: hybrid nDCG@10 within
 ±0.005 on each, cold ArguAna builds about 190x faster and peak memory ten times
 lower. `bench/2026-08-19-beir-sqlite-search.md` records the fresh SQLite ArguAna run:
 17,802 chunks, FTS/vector/hybrid nDCG@10 of 0.3342/0.3442/0.3691, and median

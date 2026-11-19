@@ -2,14 +2,10 @@
  * BEIR benchmark harness for semantic-layer's search index.
  *
  * Converts a BEIR dataset (corpus.jsonl / queries.jsonl / qrels/test.tsv) into a semantic-layer
- * vault (one note per document), builds the real SQLite index with a local nomic embedder, then
+ * vault (one note per document), builds the real SQLite index with the static embedder, then
  * scores fts / vector / hybrid modes with nDCG@10, Recall@100, MRR@10 against the official qrels.
  *
  * Usage: node out/bench.mjs <dataset-name> [eval-only]   (expects .tmp/bench/datasets/<name>/)
- *
- * `BENCH_EMBEDDER=local|static` picks the embedding provider (default `local`). Non-default
- * providers get their own vault directory (`.tmp/bench/<name>-<provider>/`) so indexes built with
- * different embedders never overwrite each other.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,10 +18,6 @@ import type { SearchMode } from "../../packages/semantic-layer/src/types.js";
 
 const BENCH_ROOT = join(process.cwd(), ".tmp", "bench");
 const DATASETS_DIR = join(BENCH_ROOT, "datasets");
-const PROVIDER = process.env.BENCH_EMBEDDER ?? "local";
-if (PROVIDER !== "local" && PROVIDER !== "static") {
-  throw new Error(`BENCH_EMBEDDER must be "local" or "static", got ${JSON.stringify(PROVIDER)}`);
-}
 
 function readJsonl(path: string): Array<Record<string, unknown>> {
   return readFileSync(path, "utf8")
@@ -61,7 +53,7 @@ function escapeWikilinks(text: string): string {
 
 /** One note per corpus document; note id (the filename) is the BEIR corpus id, verbatim. */
 function ensureVault(dataset: string): string {
-  const dsDir = join(BENCH_ROOT, PROVIDER === "local" ? dataset : `${dataset}-${PROVIDER}`);
+  const dsDir = join(BENCH_ROOT, dataset);
   const vaultDir = join(dsDir, "vault");
   if (existsSync(vaultDir)) return dsDir;
 
@@ -92,9 +84,7 @@ function ensureVault(dataset: string): string {
   }
   writeFileSync(
     join(dsDir, "semantic-layer.config.yml"),
-    ["vault: vault", "root: .", "search:", "  embedding:", `    provider: ${PROVIDER}`, ""].join(
-      "\n",
-    ),
+    ["vault: vault", "root: .", "search:", "  embedding:", "    provider: static", ""].join("\n"),
   );
   // An empty repo per dataset: the parent repo's HEAD would make every generated note look like
   // an uncommitted change, triggering the query-time staleness path (and its git spawns) per query.
@@ -161,7 +151,6 @@ async function main(): Promise<void> {
     console.log(
       JSON.stringify({
         dataset,
-        provider: PROVIDER,
         build: { notes: build.noteCount, chunks: build.chunkCount, seconds: Number(indexSeconds) },
       }),
     );
@@ -179,7 +168,6 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify({
       dataset,
-      provider: PROVIDER,
       embedderLoadMs: Number(loadMs.toFixed(1)),
       firstQueryEmbedMs: Number((performance.now() - probeStart).toFixed(2)),
     }),
@@ -214,7 +202,6 @@ async function main(): Promise<void> {
     console.log(
       JSON.stringify({
         dataset,
-        provider: PROVIDER,
         mode,
         queries: queryIds.length,
         ndcg10: Number((ndcgSum / queryIds.length).toFixed(4)),

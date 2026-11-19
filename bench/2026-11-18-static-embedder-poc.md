@@ -17,7 +17,7 @@ does not.
 ## Environment
 
 - Base commit `d50f814`; POC on branch `claude/sharp-sagan-kk6lg6`.
-  Package `@madebywild/semantic-layer` 2.1.0 (2.2.0 unreleased).
+  Package `@madebywild/semantic-layer` 2.1.0 (3.0.0 unreleased).
 - Linux 6.18 container, 4 vCPU Intel Xeon @ 2.10 GHz, 15 GB RAM, Node 22.23.5.
   This is not the M1 host of the 2026-08-19 report, so absolute timings are
   not comparable with it; only same-host numbers are compared below.
@@ -103,9 +103,9 @@ separates the two; static ranks without one.
 | NFCorpus | 0.3497 | 0.3592 | 0.3636 |
 | ArguAna | 0.3702 | 0.3747 | 0.3865 |
 
-Porter stemming ships for every embedder, so `provider: local` users get the
-middle column. The static default therefore trails what ONNX could reach with
-the same FTS by 0.013–0.029 nDCG@10. That gap is the price of dropping ONNX.
+The middle column is what keeping ONNX alongside the same Porter change would
+have reached. The static embedder therefore trails it by 0.013–0.029 nDCG@10.
+That gap is the price of dropping ONNX, which the package now does entirely.
 
 ### Cost
 
@@ -170,10 +170,14 @@ not (78.2%).
 ## Actions
 
 - Static provider (`static-embedder.ts`, `wordpiece.ts`), now the default.
-- `@huggingface/transformers` moved to an optional peer dependency.
+- ONNX removed entirely: the `local` provider, `@huggingface/transformers` and
+  `LocalEmbedderUnavailableError` (now `EmbedderUnavailableError`) are gone;
+  `static` and hosted `gemini` remain. The package becomes 3.0.0.
 - FTS5 `porter unicode61` tokenizer, schema version 6.
 - Per-embedder vector floor; hybrid PRF for static.
-- Harness: provider switch, timing and RSS output, ArguAna wikilink fix.
+- Harness: static only, timing and RSS output, ArguAna wikilink fix. The ONNX
+  numbers above came from a worktree at `d50f814`; the harness can no longer
+  produce them.
 
 ## Follow-ups
 
@@ -181,9 +185,6 @@ not (78.2%).
   here, which is where the static build time matters most.
 - Measure on real agent queries from vault usage (2–5 words, per MWG) instead
   of BEIR's long queries; BEIR is the only labelled set today.
-- Evaluate PRF for `provider: local`: it helped NFCorpus and ArguAna in the
-  replay but not the SciFact dev set, so it stays static-only for now.
 - Close the vector-only gap: a vault-tuned static table (Tokenlearn-style
   distillation from nomic) is the obvious next experiment.
-- Decide the semver of the release: `provider: local` no longer installs by
-  default.
+- Release as 3.0.0 after `pnpm check` and `pnpm check:release`.

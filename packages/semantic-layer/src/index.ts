@@ -14,7 +14,7 @@ export {
   runRefinementStage,
 } from "./refinements.js";
 export type { Embedder } from "./search/embedder.js";
-export { LocalEmbedderUnavailableError } from "./search/embedder.js";
+export { EmbedderUnavailableError } from "./search/embedder.js";
 export type {
   AncestorResult,
   BacklinkResult,

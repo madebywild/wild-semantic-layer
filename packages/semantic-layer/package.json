@@ -37,7 +37,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --config tsup.config.ts --format esm --dts --clean --sourcemap --external @huggingface/transformers",
+    "build": "tsup src/index.ts src/cli.ts --config tsup.config.ts --format esm --dts --clean --sourcemap",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit"
   },
@@ -48,17 +48,8 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@huggingface/transformers": "4.2.0",
     "@types/node": "25.7.0",
     "tsup": "8.5.1"
-  },
-  "peerDependencies": {
-    "@huggingface/transformers": "4.2.0"
-  },
-  "peerDependenciesMeta": {
-    "@huggingface/transformers": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=22.16.0"

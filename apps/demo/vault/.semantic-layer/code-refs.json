@@ -145,13 +145,13 @@
       "namespaces": [
         "value"
       ],
-      "line": 45,
+      "line": 38,
       "column": 17,
       "declarations": [
         {
           "file": "packages/semantic-layer/src/search/embedder.ts",
           "kind": "function",
-          "line": 45,
+          "line": 38,
           "column": 17
         }
       ]
@@ -233,13 +233,13 @@
       "namespaces": [
         "value"
       ],
-      "line": 56,
+      "line": 49,
       "column": 17,
       "declarations": [
         {
           "file": "packages/semantic-layer/src/search/embedder.ts",
           "kind": "function",
-          "line": 56,
+          "line": 49,
           "column": 17
         }
       ]

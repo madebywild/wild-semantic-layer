@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SEARCH_CONFIG } from "../../../../../packages/semantic-layer/src/config.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withConnectionForConfig } from "../../../../../packages/semantic-layer/src/db/connection.js";
 import { buildIndex } from "../../../../../packages/semantic-layer/src/db/indexer.js";
 import { querySearch } from "../../../../../packages/semantic-layer/src/db/queries/search.js";
@@ -19,18 +21,22 @@ function validNote(
   return `---\nid: ${id}\ntitle: ${title}\ndesc: ${desc}\nstatus: active\nowner: tester@example.com\nlast_verified: 2026-05-13\nttl_days: 365\n---\n\n${body}`;
 }
 
-// Simulate the local embedding runtime being unavailable so the indexer falls back to FTS-only.
-// `static` is the default provider, so these tests opt into `local` explicitly.
-vi.mock("@huggingface/transformers", () => {
-  throw new Error("local embedding runtime unavailable");
+// Simulate a first run on an offline machine: the default static embedder has no cached model
+// and its download fails, so the indexer falls back to FTS-only.
+let emptyModelCache = "";
+beforeEach(() => {
+  emptyModelCache = mkdtempSync(join(tmpdir(), "fts-only-models-"));
+  vi.stubEnv("SEMANTIC_LAYER_MODEL_CACHE_DIR", emptyModelCache);
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed: offline")));
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  rmSync(emptyModelCache, { recursive: true, force: true });
 });
 
-function localConfig(repoRoot: string, vaultDir: string) {
-  return createResolvedConfig({
-    repoRoot,
-    vaultDir,
-    search: { ...DEFAULT_SEARCH_CONFIG, embedding: { provider: "local" } },
-  });
+function offlineConfig(repoRoot: string, vaultDir: string) {
+  return createResolvedConfig({ repoRoot, vaultDir });
 }
 
 describe("indexer FTS-only build (embedder unavailable)", () => {
@@ -45,7 +51,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = localConfig(tv.dir, tv.vaultDir);
+      const config = offlineConfig(tv.dir, tv.vaultDir);
       const result = await buildIndex(config, {}, {});
 
       expect(result.mode).toBe("full");
@@ -73,7 +79,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = localConfig(tv.dir, tv.vaultDir);
+      const config = offlineConfig(tv.dir, tv.vaultDir);
       await buildIndex(config, {}, {});
 
       // The real query path against a genuinely FTS-only-built database: fts works and
@@ -105,7 +111,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = localConfig(tv.dir, tv.vaultDir);
+      const config = offlineConfig(tv.dir, tv.vaultDir);
       await expect(querySearch(config, { query: "anything", mode: "hybrid" })).rejects.toThrow(
         /FTS-only/,
       );
@@ -130,7 +136,7 @@ describe("indexer FTS-only build (embedder unavailable)", () => {
     gitCommitAll(tv.dir, "initial");
 
     try {
-      const config = localConfig(tv.dir, tv.vaultDir);
+      const config = offlineConfig(tv.dir, tv.vaultDir);
       // Build WITH an embedder so the index has vectors, then simulate the embedder becoming
       // unavailable: the build must fail loudly instead of destroying the embeddings.
       const { createFakeEmbedder } = await import("../../../../helpers.js");

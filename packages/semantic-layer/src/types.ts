@@ -163,7 +163,6 @@ export type ResolvedWikilinkConfig = {
 
 /** Which embedder produces vectors for the search index; a discriminated union so provider-specific fields stay valid. */
 export type SearchEmbeddingProviderConfig =
-  | { provider: "local"; model?: string; cacheDir?: string }
   | { provider: "static"; model?: string; cacheDir?: string }
   | { provider: "gemini"; model?: string; apiKeyEnv?: string };
 

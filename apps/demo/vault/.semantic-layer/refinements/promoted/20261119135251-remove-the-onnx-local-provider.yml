@@ -1,0 +1,18 @@
+schema_version: 1
+id: 20261119135251-remove-the-onnx-local-provider
+status: promoted
+source: user-message
+title: Remove the ONNX local provider
+summary: "Decision: ship one on-device embedder only. The ONNX local provider
+  and @huggingface/transformers are removed; static Model2Vec is the sole local
+  variant, gemini stays as the hosted option."
+evidence: []
+related_notes:
+  - meta.search
+  - meta.search.static-embedder
+created_at: 2026-11-19T13:52:51.743Z
+updated_at: 2026-11-19T13:53:15.876Z
+promoted_at: 2026-11-19T13:53:15.876Z
+promoted_notes:
+  - meta.search
+  - meta.search.static-embedder

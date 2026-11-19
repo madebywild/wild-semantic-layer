@@ -265,19 +265,24 @@ describe("loadConfig", () => {
     try {
       writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: openai\n");
       expect(() => loadConfig({ cwd: dir })).toThrow(
-        /embedding\.provider must be "local", "static", or "gemini"/,
+        /embedding\.provider must be "static" or "gemini"/,
       );
     } finally {
       cleanup();
     }
   });
 
-  it("rejects the renamed fastembed provider with a migration hint", () => {
+  it.each([
+    "local",
+    "fastembed",
+  ])("rejects the removed %s provider with a migration hint", (provider) => {
     const { dir, cleanup } = createTempDir();
     try {
-      writeYamlConfig(dir, "vault: vault\nsearch:\n  embedding:\n    provider: fastembed\n");
+      writeYamlConfig(dir, `vault: vault\nsearch:\n  embedding:\n    provider: ${provider}\n`);
       expect(() => loadConfig({ cwd: dir })).toThrow(
-        /embedding\.provider must be "local", "static", or "gemini".*renamed to "local"/,
+        new RegExp(
+          `embedding\\.provider must be "static" or "gemini".*"${provider}" ran an ONNX model and was removed; use "static"`,
+        ),
       );
     } finally {
       cleanup();

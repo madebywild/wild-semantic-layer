@@ -135,9 +135,9 @@ describe("withEmbeddingCache", () => {
 
   it("never serves one embedder's vectors to another, so a model change cannot leave stale vectors", async () => {
     const cacheFile = join(tempDir(), "embeddings.sqlite");
-    const nomic = withEmbeddingCache(createCountingEmbedder("local:nomic"), cacheFile);
-    const nomicVectors = await nomic.embedDocuments(["shared chunk"]);
-    await nomic.close?.();
+    const first = withEmbeddingCache(createCountingEmbedder("static:model-a"), cacheFile);
+    const firstVectors = await first.embedDocuments(["shared chunk"]);
+    await first.close?.();
 
     const other = createCountingEmbedder("local:other");
     const otherCache = withEmbeddingCache(other, cacheFile);
@@ -147,7 +147,7 @@ describe("withEmbeddingCache", () => {
     // The second model recomputed the text instead of inheriting the first model's vector, and
     // both entries coexist under their own keys.
     expect(other.computed).toEqual(["shared chunk"]);
-    expect(otherVectors).toHaveLength(nomicVectors.length);
+    expect(otherVectors).toHaveLength(firstVectors.length);
     const db = new DatabaseSync(cacheFile);
     const rows = db.prepare("SELECT count(*) AS count FROM embeddings").get() as { count: number };
     db.close();

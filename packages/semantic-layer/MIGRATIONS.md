@@ -1,35 +1,39 @@
 # @madebywild/semantic-layer migrations
 
-## 2.2.0 (unreleased)
+## 3.0.0 (unreleased)
 
-`2.2.0` adds a document-vector cache to `index`, moves the hierarchy ancestor
-rule from `check` alone into both commands, and makes the static embedder the
-default. No exported API is removed or renamed. Only configs that set
-`provider: local` need a change: one extra install, described below. Because
-that provider loses its default install, the release owner should weigh a
-major version instead. The version is not bumped yet: the
-release gates (`pnpm check` and `pnpm check:release`) belong to the release
-commit.
+`3.0.0` replaces the ONNX embedding provider with a static embedder, adds a
+document-vector cache to `index`, and moves the hierarchy ancestor rule from
+`check` alone into both commands. It is a major version because the `local`
+provider and the `LocalEmbedderUnavailableError` export are removed. The
+version is not bumped yet: the release gates (`pnpm check` and
+`pnpm check:release`) belong to the release commit.
 
-### Static embeddings are the default; ONNX is opt-in
+### The ONNX `local` provider is replaced by `static`
 
-The default `search.embedding.provider` is now `static`: a Model2Vec lookup
-table (`minishlab/potion-retrieval-32M`) with an in-tree tokenizer and no
-native runtime. `@huggingface/transformers` (and with it `onnxruntime-node`,
-about 650 MB installed) moved from `optionalDependencies` to an optional peer
-dependency, so a plain install no longer pulls it in. FTS5 now stems with
-Porter, which bumps the index schema to version 6.
+`search.embedding.provider` accepts `static` (the default) or `gemini`. The
+static provider is a Model2Vec lookup table (`minishlab/potion-retrieval-32M`,
+512 dimensions) with an in-tree tokenizer: no neural network runs and nothing
+native is installed. `@huggingface/transformers`, and with it
+`onnxruntime-node` (about 650 MB installed), is no longer a dependency in any
+form, and `nomic-ai/nomic-embed-text-v1.5` is no longer available. FTS5 now
+stems with Porter, which bumps the index schema to version 6.
 
 Consumer actions:
 
-- None if the config does not set a provider: the next `index` or `search`
-  sees the new embedder and schema and rebuilds once. The first build downloads
-  about 130 MB, keeps 33 MB in the model cache, and works offline afterwards.
-- With `provider: local`, install `@huggingface/transformers@4.2.0` next to
-  this package. Without it, `index` builds an FTS-only index and `--mode
-  vector`/`hybrid` explain why.
-- Callers of `--mode vector` alone should expect weaker ranking than with the
-  nomic model; the default `hybrid` mode is unchanged within measurement noise
+- Configs that set `provider: local` (or the pre-1.0 `fastembed`) now fail to
+  load with a hint. Change them to `provider: static`, or delete the
+  `embedding` block to use the default.
+- Remove any direct `@huggingface/transformers` install that existed only for
+  this package.
+- Replace `LocalEmbedderUnavailableError` with `EmbedderUnavailableError`. It is
+  thrown when the static model cannot be loaded, for example on the first run
+  of an offline machine, and the indexer still falls back to an FTS-only index.
+- Nothing else: the next `index` or `search` sees the new embedder and schema
+  and rebuilds once. The first build downloads about 130 MB, keeps 33 MB in
+  the model cache, and works offline afterwards.
+- Expect weaker `--mode vector` ranking than with the nomic model; the default
+  `hybrid` mode is unchanged within measurement noise
   (`bench/2026-11-18-static-embedder-poc.md`).
 
 ### Vectors are reused across worktrees

@@ -3,7 +3,7 @@ import {
   createEmbedder,
   describeConfiguredEmbedder,
   type Embedder,
-  LocalEmbedderUnavailableError,
+  EmbedderUnavailableError,
   pseudoRelevanceFeedback,
   vectorSimilarityFloor,
 } from "../../search/embedder.js";
@@ -132,13 +132,13 @@ export async function querySearch(
       let rebuilt = false;
       const willBuild = !dbExisted || !meta || opts.rebuild === true;
       // A cold vector/hybrid query shares one embedder between the build and query phases. This
-      // avoids loading two native sessions and gives querySearch one clear lifecycle to own.
+      // avoids loading the model twice and gives querySearch one clear lifecycle to own.
       if (mode !== "fts" && willBuild && !embedder) {
         try {
           embedder = await createEmbedder(config.search.embedding);
         } catch (error) {
           // Let the indexer's established FTS-only fallback produce the actionable mode error.
-          if (!(error instanceof LocalEmbedderUnavailableError)) throw error;
+          if (!(error instanceof EmbedderUnavailableError)) throw error;
         }
       }
       if (willBuild) {

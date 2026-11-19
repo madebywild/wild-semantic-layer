@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   describeConfiguredEmbedder,
-  LocalEmbedderUnavailableError,
+  EmbedderUnavailableError,
   vectorSimilarityFloor,
 } from "../../../../../packages/semantic-layer/src/search/embedder.js";
 import {
@@ -227,7 +227,7 @@ describe("createStaticEmbedder", () => {
           .mockResolvedValue({ ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }),
       );
       const error = await createStaticEmbedder({ provider: "static", cacheDir }).catch((e) => e);
-      expect(error).toBeInstanceOf(LocalEmbedderUnavailableError);
+      expect(error).toBeInstanceOf(EmbedderUnavailableError);
       expect((error as Error).cause).toMatchObject({
         message: expect.stringMatching(/SHA-256 mismatch/),
       });
@@ -236,12 +236,12 @@ describe("createStaticEmbedder", () => {
     }
   });
 
-  it("degrades like an unavailable local runtime when offline", async () => {
+  it("degrades to an unavailable embedder when offline", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "static-embedder-"));
     try {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
       await expect(createStaticEmbedder({ provider: "static", cacheDir })).rejects.toBeInstanceOf(
-        LocalEmbedderUnavailableError,
+        EmbedderUnavailableError,
       );
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
@@ -374,7 +374,7 @@ describe("loadStaticEmbedder cache cycle", () => {
     try {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
       const error = await loadStaticEmbedder("acme/tiny", spec, cacheDir).catch((e) => e);
-      expect(error).toBeInstanceOf(LocalEmbedderUnavailableError);
+      expect(error).toBeInstanceOf(EmbedderUnavailableError);
       expect((error as Error).cause).toMatchObject({ message: expect.stringMatching(/404/) });
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
@@ -390,8 +390,8 @@ describe("static embedder identity and floor", () => {
     });
   });
 
-  it("keeps the 0.4 floor for nomic and ranks static vectors without one", () => {
-    expect(vectorSimilarityFloor("local:nomic-ai/nomic-embed-text-v1.5")).toBe(0.4);
+  it("keeps the 0.4 floor for Gemini and ranks static vectors without one", () => {
+    expect(vectorSimilarityFloor("gemini:gemini-embedding-001")).toBe(0.4);
     expect(vectorSimilarityFloor("static:minishlab/potion-retrieval-32M")).toBe(0);
   });
 });
